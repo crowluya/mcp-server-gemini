@@ -23,17 +23,23 @@ A powerful MCP (Model Context Protocol) server that brings Google's Gemini AI mo
 
 ### Supported Models
 
-| Model | Context | Features | Best For |
-|-------|---------|----------|----------|
-| google/gemini-3-flash-preview 🆕 | 1M tokens | Thinking, Vision, Video | Latest Gemini 3 |
-| google/gemini-2.5-pro-preview | 2M tokens | Thinking, Vision, Video | Complex reasoning |
-| google/gemini-2.5-flash-preview ⭐ | 1M tokens | Thinking, Vision, Video | General use (default) |
-| google/gemini-2.5-flash-exp | 1M tokens | Thinking, Vision, Video | Experimental 2.5 |
-| google/gemini-2.5-flash-lite | 1M tokens | Thinking, Vision, Video | Lightweight 2.5 |
-| google/gemini-2.0-flash-exp | 1M tokens | Vision, Video | Fast with video |
-| google/gemini-exp-1206 | 2M tokens | Thinking, Vision, Video | Latest experimental |
-| google/gemini-pro-1.5 | 2M tokens | Vision, Video | Previous generation pro |
-| google/gemini-flash-1.5 | 1M tokens | Vision | Quick tasks |
+Pricing via [OpenRouter](https://openrouter.ai/models?google_tag_verified=organization%3Agoogle-llc):
+
+| Model | Context | Input | Output | Features | Best For |
+|-------|---------|-------|--------|----------|----------|
+| google/gemini-3-flash-preview 🆕 | 1M | $0.50/M | $3/M | Thinking, Vision, Video, Audio | Latest Gemini 3 |
+| google/gemini-2.5-pro-preview | 2M | $1.25/M | $10/M | Thinking, Vision, Video | Complex reasoning |
+| google/gemini-2.5-flash-preview ⭐ | 1M | ~$0.10/M | ~$0.40/M | Thinking, Vision, Video | General use (default) |
+| google/gemini-2.5-flash-exp | 1M | ~$0.30/M | ~$2.50/M | Thinking, Vision, Video | Experimental 2.5 |
+| google/gemini-2.5-flash-lite | 1M | - | - | Thinking, Vision, Video | Lightweight 2.5 |
+| google/gemini-2.0-flash-exp | 1M | - | - | Vision, Video | Fast with video |
+| google/gemini-exp-1206 | 2M | - | - | Thinking, Vision, Video | Latest experimental |
+| google/gemini-pro-1.5 | 2M | - | - | Vision, Video | Previous generation pro |
+| google/gemini-flash-1.5 | 1M | - | - | Vision | Quick tasks |
+
+**Default model**: `google/gemini-2.5-flash` (configurable via `DEFAULT_MODEL` env var)
+
+**Note**: Prices are estimates via OpenRouter and may vary by provider. Check [OpenRouter](https://openrouter.ai/models?google_tag_verified=organization%3Agoogle-llc) for real-time pricing.
 
 ## Quick Start
 
@@ -60,14 +66,18 @@ A powerful MCP (Model Context Protocol) server that brings Google's Gemini AI mo
          "args": ["path/to/mcp-server-gemini/dist/enhanced-stdio-server.js"],
          "env": {
            "OPENROUTER_API_KEY": "your_api_key_here",
-           "DEFAULT_MODEL": "google/gemini-2.5-flash"
+           "DEFAULT_MODEL": "google/gemini-2.5-flash",
+           "AVAILABLE_MODELS": "google/gemini-3-flash-preview,google/gemini-2.5-flash,google/gemini-2.5-pro-preview"
          }
        }
      }
    }
    ```
 
-   **Default model**: `google/gemini-2.5-flash` (configurable via `DEFAULT_MODEL` env var)
+   **Environment Variables**:
+   - `OPENROUTER_API_KEY` (required): Your OpenRouter API key
+   - `DEFAULT_MODEL` (optional): Default model to use (default: `google/gemini-2.5-flash`)
+   - `AVAILABLE_MODELS` (optional): Comma-separated list of allowed models
    </details>
 
    <details>
