@@ -38,15 +38,6 @@ const MODEL_KEYWORDS: Record<string, string[]> = {
   // Future models - add as needed
   'google/gemini-3-flash-preview': [
     'gemini 3', 'gemini-3', 'gemini 3 flash', 'g-3', 'g3'
-  ],
-  'anthropic/claude-3.5-sonnet': [
-    'claude', 'claude 3.5', 'claude-3.5', 'c-3.5'
-  ],
-  'openai/gpt-4o': [
-    'gpt-4o', 'gpt 4o', 'gpt4o', 'gpt4', 'chatgpt'
-  ],
-  'openai/gpt-4o-mini': [
-    'gpt-4o-mini', 'gpt 4o mini', 'gpt4o mini', 'gpt mini'
   ]
 };
 
@@ -148,9 +139,7 @@ class EnhancedStdioMCPServer {
           'google/gemini-2.5-flash-preview',
           'google/gemini-2.5-flash-lite',
           'google/gemini-2.5-pro-preview',
-          'google/gemini-3-flash-preview',
-          'anthropic/claude-3.5-sonnet',
-          'openai/gpt-4o'
+          'google/gemini-3-flash-preview'
         ];
 
     this.aiClient = new MCPClient(openRouterKey);

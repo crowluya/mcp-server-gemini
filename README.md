@@ -6,7 +6,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue)](https://www.typescriptlang.org/)
 [![MCP Version](https://img.shields.io/badge/MCP-2024--11--05-green)](https://modelcontextprotocol.io/)
 
-A powerful MCP (Model Context Protocol) server that brings Google's Gemini AI models to your favorite development environment through OpenRouter. Access Gemini 2.5's thinking capabilities, vision analysis, and more through a seamless integration.
+A powerful MCP (Model Context Protocol) server that brings Google's Gemini AI models to your favorite development environment through OpenRouter. Access Gemini 3 and 2.5's thinking capabilities, vision analysis, and more through a seamless integration.
 
 🚀 **Works with**: Claude Desktop, Cursor, Windsurf, and any MCP-compatible client
 🎯 **Why use this**: Get Gemini's cutting-edge AI features directly in your IDE with full parameter control
@@ -14,8 +14,8 @@ A powerful MCP (Model Context Protocol) server that brings Google's Gemini AI mo
 
 ## Features
 
-- **9 Powerful Tools**: Text generation, image analysis, token counting, model listing, specialized vision tools, and self-documenting help
-- **Latest Gemini Models**: Support for Gemini 2.5 series with thinking capabilities via OpenRouter
+- **12 Powerful Tools**: Text generation, image analysis, token counting, model listing, specialized vision tools, and self-documenting help
+- **Latest Gemini Models**: Support for Gemini 3 and 2.5 series with thinking capabilities via OpenRouter
 - **Advanced Features**: JSON mode, system instructions, conversation memory
 - **Full MCP Protocol**: Standard stdio communication for seamless integration with any MCP client
 - **Self-Documenting**: Built-in help system - no external docs needed
@@ -25,11 +25,15 @@ A powerful MCP (Model Context Protocol) server that brings Google's Gemini AI mo
 
 | Model | Context | Features | Best For |
 |-------|---------|----------|----------|
+| google/gemini-3-flash-preview 🆕 | 1M tokens | Thinking, Vision, Video | Latest Gemini 3 |
 | google/gemini-2.5-pro-preview | 2M tokens | Thinking, Vision, Video | Complex reasoning |
-| google/gemini-2.5-flash-preview ⭐ | 1M tokens | Thinking, Vision, Video | General use |
+| google/gemini-2.5-flash-preview ⭐ | 1M tokens | Thinking, Vision, Video | General use (default) |
+| google/gemini-2.5-flash-exp | 1M tokens | Thinking, Vision, Video | Experimental 2.5 |
+| google/gemini-2.5-flash-lite | 1M tokens | Thinking, Vision, Video | Lightweight 2.5 |
 | google/gemini-2.0-flash-exp | 1M tokens | Vision, Video | Fast with video |
-| anthropic/claude-3.5-sonnet | 200K tokens | Vision | Claude compatibility |
-| openai/gpt-4o | 128K tokens | Vision | GPT-4o access |
+| google/gemini-exp-1206 | 2M tokens | Thinking, Vision, Video | Latest experimental |
+| google/gemini-pro-1.5 | 2M tokens | Vision, Video | Previous generation pro |
+| google/gemini-flash-1.5 | 1M tokens | Vision | Quick tasks |
 
 ## Quick Start
 
@@ -55,12 +59,15 @@ A powerful MCP (Model Context Protocol) server that brings Google's Gemini AI mo
          "command": "node",
          "args": ["path/to/mcp-server-gemini/dist/enhanced-stdio-server.js"],
          "env": {
-           "OPENROUTER_API_KEY": "your_api_key_here"
+           "OPENROUTER_API_KEY": "your_api_key_here",
+           "DEFAULT_MODEL": "google/gemini-2.5-flash"
          }
        }
      }
    }
    ```
+
+   **Default model**: `google/gemini-2.5-flash` (configurable via `DEFAULT_MODEL` env var)
    </details>
 
    <details>
@@ -73,7 +80,8 @@ A powerful MCP (Model Context Protocol) server that brings Google's Gemini AI mo
        "command": "node",
        "args": ["path/to/mcp-server-gemini/dist/enhanced-stdio-server.js"],
        "env": {
-         "OPENROUTER_API_KEY": "your_api_key_here"
+         "OPENROUTER_API_KEY": "your_api_key_here",
+         "DEFAULT_MODEL": "google/gemini-2.5-flash"
        }
      }
    }
@@ -89,7 +97,8 @@ A powerful MCP (Model Context Protocol) server that brings Google's Gemini AI mo
      "command": "node",
      "args": ["path/to/mcp-server-gemini/dist/enhanced-stdio-server.js"],
      "env": {
-       "OPENROUTER_API_KEY": "your_api_key_here"
+       "OPENROUTER_API_KEY": "your_api_key_here",
+       "DEFAULT_MODEL": "google/gemini-2.5-flash"
      }
    }
    ```
@@ -111,8 +120,8 @@ Once configured, you can use natural language in your MCP client to access Gemin
 
 ### Advanced Examples
 ```
-"Use Gemini 2.5 Pro with temperature 0.3 to review this code"
-"Use Gemini in JSON mode to extract key points with schema {title, summary, tags}"
+"Use Gemini 3 with temperature 0.3 to review this code"
+"Use Gemini 2.5 Pro in JSON mode to extract key points with schema {title, summary, tags}"
 "Convert this UI screenshot to React code"
 ```
 
@@ -143,7 +152,7 @@ Once configured, you can use natural language in your MCP client to access Gemin
 
 ## Why Gemini MCP Server?
 
-- **Access Latest Models**: Use Gemini 2.5 with thinking capabilities through OpenRouter
+- **Access Latest Models**: Use Gemini 3 and 2.5 with thinking capabilities through OpenRouter
 - **Full Feature Set**: All Gemini API features including JSON mode and system instructions
 - **Easy Setup**: One-line npm installation, no complex configuration needed
 - **Production Ready**: Comprehensive error handling, TypeScript types, and extensive documentation
