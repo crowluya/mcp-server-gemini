@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.0.0] - 2025-12-31
+
+### Added
+- **OpenRouter Integration**: Full support for OpenRouter API with automatic fallback to Google GenAI
+- **Environment Variable Configuration**: Configure models via `DEFAULT_MODEL` and `AVAILABLE_MODELS` environment variables
+- **Flexible Model Selection**: Use any OpenRouter model ID (Claude, GPT-4o, Llama, Mistral, etc.)
+- **8 New Vision/Video Tools**:
+  - `ui_to_artifact` - Convert UI screenshots to code/prompts/specs/descriptions
+  - `extract_text_from_screenshot` - OCR text extraction with code support
+  - `diagnose_error_screenshot` - Error analysis with actionable solutions
+  - `understand_technical_diagram` - Architecture/flowchart/UML/ER diagram analysis
+  - `analyze_data_visualization` - Chart/graph/dashboard insights extraction
+  - `ui_diff_check` - Visual comparison of two UI screenshots
+  - `analyze_image` - General-purpose image analysis
+  - `analyze_video` - Video content analysis (MP4/MOV/M4V)
+
+### Changed
+- Version bumped to 5.0.0 for major feature release
+- All tools now support custom `model` parameter for any OpenRouter model
+- Default model configurable via `DEFAULT_MODEL` environment variable
+- Available models configurable via `AVAILABLE_MODELS` environment variable (comma-separated)
+
+### Configuration
+```json
+{
+  "env": {
+    "OPENROUTER_API_KEY": "sk-or-v1-xxx",
+    "DEFAULT_MODEL": "google/gemini-2.5-flash-preview",
+    "AVAILABLE_MODELS": "google/gemini-2.5-flash-preview,google/gemini-2.5-flash-lite,anthropic/claude-3.5-sonnet,openai/gpt-4o"
+  }
+}
+```
+
+### New Files
+- `src/openrouter-client.ts` - OpenRouter client with fallback support
+- `src/vision-tools.ts` - Specialized vision and video analysis tools
+
 ## [4.2.2] - 2025-07-08
 
 ### Fixed

@@ -1,7 +1,7 @@
 {
   "name": "mcp-server-gemini",
-  "version": "4.2.2",
-  "description": "State-of-the-art MCP server for Google Gemini API with all latest features",
+  "version": "5.0.0",
+  "description": "MCP server for Gemini with OpenRouter integration and specialized vision/video tools. Features include UI-to-code, OCR, error diagnosis, diagram understanding, and video analysis.",
   "main": "dist/enhanced-stdio-server.js",
   "bin": {
     "mcp-server-gemini": "./dist/enhanced-stdio-server.js"
@@ -36,12 +36,18 @@
     "model-context-protocol",
     "gemini",
     "google-gemini",
+    "openrouter",
     "ai",
     "llm",
     "claude-desktop",
     "cursor",
     "windsurf",
-    "typescript"
+    "typescript",
+    "vision",
+    "ocr",
+    "video-analysis",
+    "ui-to-code",
+    "image-analysis"
   ],
   "author": "Ali Argun",
   "license": "MIT",

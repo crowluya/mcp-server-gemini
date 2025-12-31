@@ -1,72 +1,99 @@
 #!/usr/bin/env node
-import { GoogleGenAI } from '@google/genai';
 import { createInterface } from 'readline';
 import { MCPRequest, MCPResponse } from './types.js';
+import { UnifiedAIClient, OPENROUTER_GEMINI_MODELS } from './openrouter-client.js';
+import { visionToolHandlers, getVisionToolSchemas } from './vision-tools.js';
 
 // Increase max buffer size for large images (10MB)
 if (process.stdin.setEncoding) {
   process.stdin.setEncoding('utf8');
 }
 
-// Available Gemini models as of July 2025
-const GEMINI_MODELS = {
-  // Thinking models (2.5 series) - latest and most capable
+// Combine models from both sources for listing
+const ALL_GEMINI_MODELS = {
+  // Direct Google models (legacy naming)
   'gemini-2.5-pro': {
     description: 'Most capable thinking model, best for complex reasoning and coding',
     features: ['thinking', 'function_calling', 'json_mode', 'grounding', 'system_instructions'],
-    contextWindow: 2000000, // 2M tokens
-    thinking: true
+    contextWindow: 2000000,
+    thinking: true,
+    provider: 'google'
   },
   'gemini-2.5-flash': {
     description: 'Fast thinking model with best price/performance ratio',
     features: ['thinking', 'function_calling', 'json_mode', 'grounding', 'system_instructions'],
-    contextWindow: 1000000, // 1M tokens
-    thinking: true
-  },
-  'gemini-2.5-flash-lite': {
-    description: 'Ultra-fast, cost-efficient thinking model for high-throughput tasks',
-    features: ['thinking', 'function_calling', 'json_mode', 'system_instructions'],
     contextWindow: 1000000,
-    thinking: true
+    thinking: true,
+    provider: 'google'
   },
-  
-  // 2.0 series
   'gemini-2.0-flash': {
     description: 'Fast, efficient model with 1M context window',
     features: ['function_calling', 'json_mode', 'grounding', 'system_instructions'],
-    contextWindow: 1000000
+    contextWindow: 1000000,
+    provider: 'google'
   },
-  'gemini-2.0-flash-lite': {
-    description: 'Most cost-efficient model for simple tasks',
-    features: ['function_calling', 'json_mode', 'system_instructions'],
-    contextWindow: 1000000
-  },
-  'gemini-2.0-pro-experimental': {
-    description: 'Experimental model with 2M context, excellent for coding',
-    features: ['function_calling', 'json_mode', 'grounding', 'system_instructions'],
-    contextWindow: 2000000
-  },
-  
-  // Legacy models (for compatibility)
   'gemini-1.5-pro': {
     description: 'Previous generation pro model',
     features: ['function_calling', 'json_mode', 'system_instructions'],
-    contextWindow: 2000000
+    contextWindow: 2000000,
+    provider: 'google'
   },
   'gemini-1.5-flash': {
     description: 'Previous generation fast model',
     features: ['function_calling', 'json_mode', 'system_instructions'],
-    contextWindow: 1000000
-  }
+    contextWindow: 1000000,
+    provider: 'google'
+  },
+  // OpenRouter models
+  ...Object.fromEntries(
+    Object.entries(OPENROUTER_GEMINI_MODELS).map(([id, info]) => [
+      id,
+      { ...info, provider: 'openrouter' as const }
+    ])
+  )
 };
 
 class EnhancedStdioMCPServer {
-  private genAI: GoogleGenAI;
+  private aiClient: UnifiedAIClient;
   private conversations: Map<string, any[]> = new Map();
-  
-  constructor(apiKey: string) {
-    this.genAI = new GoogleGenAI({ apiKey });
+  private serverVersion = '5.0.0';
+  private activeProvider: 'openrouter' | 'google' = 'openrouter';
+  private defaultModel: string;
+  private availableModels: string[];
+
+  constructor(openRouterKey?: string, googleKey?: string) {
+    // Read model configuration from environment
+    this.defaultModel = process.env.DEFAULT_MODEL || 'google/gemini-2.5-flash-preview';
+    this.availableModels = process.env.AVAILABLE_MODELS
+      ? process.env.AVAILABLE_MODELS.split(',').map(m => m.trim())
+      : [
+          'google/gemini-2.5-flash-preview',
+          'google/gemini-2.5-flash-lite',
+          'google/gemini-2.5-pro-preview',
+          'google/gemini-2.0-flash-exp',
+          'anthropic/claude-3.5-sonnet',
+          'openai/gpt-4o',
+          'openai/gpt-4o-mini'
+        ];
+
+    this.aiClient = new UnifiedAIClient(openRouterKey, googleKey);
     this.setupStdioInterface();
+    this.logInitialization();
+  }
+
+  private logInitialization() {
+    console.error(`MCP Server v${this.serverVersion} starting...`);
+    if (openRouterKey) {
+      console.error('OpenRouter API key detected - will use as primary');
+      this.activeProvider = 'openrouter';
+    } else if (googleKey) {
+      console.error('Google GenAI API key detected - using as primary');
+      this.activeProvider = 'google';
+    } else {
+      console.error('Warning: No API keys detected');
+    }
+    console.error(`Default model: ${this.defaultModel}`);
+    console.error(`Available models: ${this.availableModels.slice(0, 5).join(', ')}${this.availableModels.length > 5 ? '...' : ''}`);
   }
 
   private setupStdioInterface() {
@@ -74,7 +101,6 @@ class EnhancedStdioMCPServer {
       input: process.stdin,
       output: process.stdout,
       terminal: false,
-      // Increase max line length for large image data
       crlfDelay: Infinity
     });
 
@@ -101,32 +127,11 @@ class EnhancedStdioMCPServer {
 
       switch (request.method) {
         case 'initialize':
-          response = {
-            jsonrpc: '2.0',
-            id: request.id,
-            result: {
-              protocolVersion: '2024-11-05',
-              serverInfo: {
-                name: 'mcp-server-gemini-enhanced',
-                version: '4.1.0'
-              },
-              capabilities: {
-                tools: {},
-                resources: {},
-                prompts: {}
-              }
-            }
-          };
+          response = this.handleInitialize(request);
           break;
 
         case 'tools/list':
-          response = {
-            jsonrpc: '2.0',
-            id: request.id,
-            result: {
-              tools: this.getAvailableTools()
-            }
-          };
+          response = this.handleToolsList(request);
           break;
 
         case 'tools/call':
@@ -134,13 +139,7 @@ class EnhancedStdioMCPServer {
           break;
 
         case 'resources/list':
-          response = {
-            jsonrpc: '2.0',
-            id: request.id,
-            result: {
-              resources: this.getAvailableResources()
-            }
-          };
+          response = this.handleResourcesList(request);
           break;
 
         case 'resources/read':
@@ -148,13 +147,7 @@ class EnhancedStdioMCPServer {
           break;
 
         case 'prompts/list':
-          response = {
-            jsonrpc: '2.0',
-            id: request.id,
-            result: {
-              prompts: this.getAvailablePrompts()
-            }
-          };
+          response = this.handlePromptsList(request);
           break;
 
         default:
@@ -162,7 +155,6 @@ class EnhancedStdioMCPServer {
             console.error(`Notification received: ${(request as any).method}`);
             return;
           }
-          
           response = {
             jsonrpc: '2.0',
             id: request.id,
@@ -187,23 +179,47 @@ class EnhancedStdioMCPServer {
     }
   }
 
-  private getAvailableTools() {
-    return [
+  private handleInitialize(request: MCPRequest): MCPResponse {
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        protocolVersion: '2024-11-05',
+        serverInfo: {
+          name: 'mcp-server-gemini-enhanced',
+          version: this.serverVersion
+        },
+        capabilities: {
+          tools: {},
+          resources: {},
+          prompts: {}
+        }
+      }
+    };
+  }
+
+  private handleToolsList(request: MCPResponse): MCPResponse {
+    const modelEnum = this.availableModels.length > 0 ? this.availableModels : undefined;
+    const modelDescription = modelEnum
+      ? `Model to use. Available: ${modelEnum.slice(0, 5).join(', ')}${modelEnum.length > 5 ? ', ...' : ''}. Or specify any OpenRouter model ID.`
+      : 'Any OpenRouter model ID (e.g., google/gemini-2.5-flash-preview, anthropic/claude-3.5-sonnet, openai/gpt-4o, etc.)';
+
+    const originalTools = [
       {
         name: 'generate_text',
-        description: 'Generate text using Google Gemini with advanced features',
+        description: 'Generate text using any model on OpenRouter or Google GenAI. Supports thinking mode, JSON output, and grounding.',
         inputSchema: {
           type: 'object',
           properties: {
             prompt: {
               type: 'string',
-              description: 'The prompt to send to Gemini'
+              description: 'The prompt to send to the model'
             },
             model: {
               type: 'string',
-              description: 'Specific Gemini model to use',
-              enum: Object.keys(GEMINI_MODELS),
-              default: 'gemini-2.5-flash'
+              description: modelDescription,
+              default: this.defaultModel,
+              enum: modelEnum
             },
             systemInstruction: {
               type: 'string',
@@ -221,46 +237,10 @@ class EnhancedStdioMCPServer {
               description: 'Maximum tokens to generate',
               default: 2048
             },
-            topK: {
-              type: 'number',
-              description: 'Top-k sampling parameter',
-              default: 40
-            },
-            topP: {
-              type: 'number',
-              description: 'Top-p (nucleus) sampling parameter',
-              default: 0.95
-            },
             jsonMode: {
               type: 'boolean',
               description: 'Enable JSON mode for structured output',
               default: false
-            },
-            jsonSchema: {
-              type: 'object',
-              description: 'JSON schema for structured output (when jsonMode is true)'
-            },
-            grounding: {
-              type: 'boolean',
-              description: 'Enable Google Search grounding for up-to-date information',
-              default: false
-            },
-            safetySettings: {
-              type: 'array',
-              description: 'Safety settings for content filtering',
-              items: {
-                type: 'object',
-                properties: {
-                  category: {
-                    type: 'string',
-                    enum: ['HARM_CATEGORY_HARASSMENT', 'HARM_CATEGORY_HATE_SPEECH', 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'HARM_CATEGORY_DANGEROUS_CONTENT']
-                  },
-                  threshold: {
-                    type: 'string',
-                    enum: ['BLOCK_NONE', 'BLOCK_ONLY_HIGH', 'BLOCK_MEDIUM_AND_ABOVE', 'BLOCK_LOW_AND_ABOVE']
-                  }
-                }
-              }
             },
             conversationId: {
               type: 'string',
@@ -272,7 +252,7 @@ class EnhancedStdioMCPServer {
       },
       {
         name: 'analyze_image',
-        description: 'Analyze images using Gemini vision capabilities',
+        description: 'Analyze images using any vision-capable model on OpenRouter. (Legacy - consider using specialized vision tools for specific use cases)',
         inputSchema: {
           type: 'object',
           properties: {
@@ -280,31 +260,23 @@ class EnhancedStdioMCPServer {
               type: 'string',
               description: 'Question or instruction about the image'
             },
-            imageUrl: {
+            image: {
               type: 'string',
-              description: 'URL of the image to analyze'
-            },
-            imageBase64: {
-              type: 'string',
-              description: 'Base64-encoded image data (alternative to URL)'
+              description: 'Base64-encoded image data URL or public URL'
             },
             model: {
               type: 'string',
-              description: 'Vision-capable Gemini model',
-              enum: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'],
-              default: 'gemini-2.5-flash'
+              description: modelDescription,
+              default: this.defaultModel,
+              enum: modelEnum
             }
           },
-          required: ['prompt'],
-          oneOf: [
-            { required: ['imageUrl'] },
-            { required: ['imageBase64'] }
-          ]
+          required: ['prompt', 'image']
         }
       },
       {
         name: 'count_tokens',
-        description: 'Count tokens for a given text with a specific model',
+        description: 'Count tokens for a given text (approximate for non-Google models)',
         inputSchema: {
           type: 'object',
           properties: {
@@ -315,8 +287,8 @@ class EnhancedStdioMCPServer {
             model: {
               type: 'string',
               description: 'Model to use for token counting',
-              enum: Object.keys(GEMINI_MODELS),
-              default: 'gemini-2.5-flash'
+              default: this.defaultModel,
+              enum: modelEnum
             }
           },
           required: ['text']
@@ -324,21 +296,22 @@ class EnhancedStdioMCPServer {
       },
       {
         name: 'list_models',
-        description: 'List all available Gemini models and their capabilities',
+        description: 'List all available Gemini models from both OpenRouter and Google GenAI',
         inputSchema: {
           type: 'object',
           properties: {
             filter: {
               type: 'string',
               description: 'Filter models by capability',
-              enum: ['all', 'thinking', 'vision', 'grounding', 'json_mode']
+              enum: ['all', 'thinking', 'vision', 'video'],
+              default: 'all'
             }
           }
         }
       },
       {
         name: 'embed_text',
-        description: 'Generate embeddings for text using Gemini embedding models',
+        description: 'Generate embeddings for text (Google GenAI only)',
         inputSchema: {
           type: 'object',
           properties: {
@@ -365,130 +338,75 @@ class EnhancedStdioMCPServer {
             topic: {
               type: 'string',
               description: 'Help topic to get information about',
-              enum: ['overview', 'tools', 'models', 'parameters', 'examples', 'quick-start'],
+              enum: ['overview', 'tools', 'models', 'vision-tools', 'parameters', 'examples', 'quick-start'],
               default: 'overview'
             }
           }
         }
       }
     ];
-  }
 
-  private getAvailableResources() {
-    return [
-      {
-        uri: 'gemini://models',
-        name: 'Available Gemini Models',
-        description: 'List of all available Gemini models and their capabilities',
-        mimeType: 'application/json'
-      },
-      {
-        uri: 'gemini://capabilities',
-        name: 'API Capabilities',
-        description: 'Detailed information about Gemini API capabilities',
-        mimeType: 'text/markdown'
-      },
-      {
-        uri: 'gemini://help/usage',
-        name: 'Usage Guide',
-        description: 'Complete guide on using all tools and features',
-        mimeType: 'text/markdown'
-      },
-      {
-        uri: 'gemini://help/parameters',
-        name: 'Parameters Reference',
-        description: 'Detailed documentation of all parameters',
-        mimeType: 'text/markdown'
-      },
-      {
-        uri: 'gemini://help/examples',
-        name: 'Examples',
-        description: 'Example usage patterns for common tasks',
-        mimeType: 'text/markdown'
-      }
-    ];
-  }
+    // Add vision tools
+    const visionTools = getVisionToolSchemas();
 
-  private getAvailablePrompts() {
-    return [
-      {
-        name: 'code_review',
-        description: 'Comprehensive code review with Gemini 2.5 Pro',
-        arguments: [
-          {
-            name: 'code',
-            description: 'Code to review',
-            required: true
-          },
-          {
-            name: 'language',
-            description: 'Programming language',
-            required: false
-          }
-        ]
-      },
-      {
-        name: 'explain_with_thinking',
-        description: 'Deep explanation using Gemini 2.5 thinking capabilities',
-        arguments: [
-          {
-            name: 'topic',
-            description: 'Topic to explain',
-            required: true
-          },
-          {
-            name: 'level',
-            description: 'Explanation level (beginner/intermediate/expert)',
-            required: false
-          }
-        ]
-      },
-      {
-        name: 'creative_writing',
-        description: 'Creative writing with style control',
-        arguments: [
-          {
-            name: 'prompt',
-            description: 'Writing prompt',
-            required: true
-          },
-          {
-            name: 'style',
-            description: 'Writing style',
-            required: false
-          },
-          {
-            name: 'length',
-            description: 'Desired length',
-            required: false
-          }
-        ]
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        tools: [...originalTools, ...visionTools]
       }
-    ];
+    };
   }
 
   private async handleToolCall(request: MCPRequest): Promise<MCPResponse> {
     const { name, arguments: args } = request.params || {};
 
+    console.error(`Tool called: ${name}`);
+
+    // Handle vision tools first
+    if (name in visionToolHandlers) {
+      const handler = visionToolHandlers[name as keyof typeof visionToolHandlers];
+      try {
+        const result = await handler(this.aiClient, args);
+        return {
+          jsonrpc: '2.0',
+          id: request.id,
+          result: result.isError
+            ? { error: { message: result.content[0].text } }
+            : result
+        };
+      } catch (error) {
+        return {
+          jsonrpc: '2.0',
+          id: request.id,
+          error: {
+            code: -32603,
+            message: error instanceof Error ? error.message : 'Internal error'
+          }
+        };
+      }
+    }
+
+    // Handle original tools
     switch (name) {
       case 'generate_text':
         return await this.generateText(request.id, args);
-      
+
       case 'analyze_image':
         return await this.analyzeImage(request.id, args);
-      
+
       case 'count_tokens':
         return await this.countTokens(request.id, args);
-      
+
       case 'list_models':
         return this.listModels(request.id, args);
-      
+
       case 'embed_text':
         return await this.embedText(request.id, args);
-      
+
       case 'get_help':
         return this.getHelp(request.id, args);
-      
+
       default:
         return {
           jsonrpc: '2.0',
@@ -503,87 +421,22 @@ class EnhancedStdioMCPServer {
 
   private async generateText(id: any, args: any): Promise<MCPResponse> {
     try {
-      const model = args.model || 'gemini-2.5-flash';
-      const modelInfo = GEMINI_MODELS[model as keyof typeof GEMINI_MODELS];
-      
-      if (!modelInfo) {
-        throw new Error(`Unknown model: ${model}`);
-      }
+      const model = args.model || 'google/gemini-2.5-flash-preview';
 
-      // Build generation config
-      const generationConfig: any = {
-        temperature: args.temperature || 0.7,
-        maxOutputTokens: args.maxTokens || 2048,
-        topK: args.topK || 40,
-        topP: args.topP || 0.95
-      };
-
-      // Add JSON mode if requested
-      if (args.jsonMode) {
-        generationConfig.responseMimeType = 'application/json';
-        if (args.jsonSchema) {
-          generationConfig.responseSchema = args.jsonSchema;
-        }
-      }
-
-      // Build the request
-      const requestBody: any = {
+      const result = await this.aiClient.chat({
         model,
-        contents: [{
-          parts: [{
-            text: args.prompt
-          }],
-          role: 'user'
-        }],
-        generationConfig
-      };
-
-      // Add system instruction if provided
-      if (args.systemInstruction) {
-        requestBody.systemInstruction = {
-          parts: [{
-            text: args.systemInstruction
-          }]
-        };
-      }
-
-      // Add safety settings if provided
-      if (args.safetySettings) {
-        requestBody.safetySettings = args.safetySettings;
-      }
-
-      // Add grounding if requested and supported
-      if (args.grounding && modelInfo.features.includes('grounding')) {
-        requestBody.tools = [{
-          googleSearch: {}
-        }];
-      }
-
-      // Handle conversation context
-      if (args.conversationId) {
-        const history = this.conversations.get(args.conversationId) || [];
-        if (history.length > 0) {
-          requestBody.contents = [...history, ...requestBody.contents];
-        }
-      }
-
-      // Call the API using the new SDK format
-      const result = await this.genAI.models.generateContent({
-        model,
-        ...requestBody
+        prompt: args.prompt,
+        systemInstruction: args.systemInstruction,
+        temperature: args.temperature,
+        maxTokens: args.maxTokens,
+        responseFormat: args.jsonMode ? { type: 'json_object' } : undefined
       });
-      const text = result.text || '';
 
       // Update conversation history if needed
       if (args.conversationId) {
         const history = this.conversations.get(args.conversationId) || [];
-        history.push(...requestBody.contents);
-        history.push({
-          parts: [{
-            text: text
-          }],
-          role: 'model'
-        });
+        history.push({ role: 'user', content: args.prompt });
+        history.push({ role: 'assistant', content: result.text });
         this.conversations.set(args.conversationId, history);
       }
 
@@ -593,13 +446,12 @@ class EnhancedStdioMCPServer {
         result: {
           content: [{
             type: 'text',
-            text: text
+            text: result.text
           }],
           metadata: {
             model,
-            tokensUsed: result.usageMetadata?.totalTokenCount,
-            candidatesCount: result.candidates?.length || 1,
-            finishReason: result.candidates?.[0]?.finishReason
+            provider: result.provider,
+            tokensUsed: result.usage?.total_tokens
           }
         }
       };
@@ -618,59 +470,19 @@ class EnhancedStdioMCPServer {
 
   private async analyzeImage(id: any, args: any): Promise<MCPResponse> {
     try {
-      const model = args.model || 'gemini-2.5-flash';
+      const model = args.model || 'google/gemini-2.5-flash-preview';
 
-      // Validate inputs
-      if (!args.imageUrl && !args.imageBase64) {
-        throw new Error('Either imageUrl or imageBase64 must be provided');
+      if (!args.image) {
+        throw new Error('Image parameter is required');
       }
 
-      // Prepare image part
-      let imagePart: any;
-      if (args.imageUrl) {
-        // For URL, we'd need to fetch and convert to base64
-        // For now, we'll just pass the URL as instruction
-        imagePart = {
-          text: `[Image URL: ${args.imageUrl}]`
-        };
-      } else if (args.imageBase64) {
-        // Log base64 data size for debugging
-        console.error(`Image base64 length: ${args.imageBase64.length}`);
-        
-        // Extract MIME type and data
-        const matches = args.imageBase64.match(/^data:(.+);base64,(.+)$/);
-        if (matches) {
-          console.error(`MIME type: ${matches[1]}, Data length: ${matches[2].length}`);
-          imagePart = {
-            inlineData: {
-              mimeType: matches[1],
-              data: matches[2]
-            }
-          };
-        } else {
-          // If no data URI format, assume raw base64
-          console.error('Raw base64 data detected');
-          imagePart = {
-            inlineData: {
-              mimeType: 'image/jpeg',
-              data: args.imageBase64
-            }
-          };
-        }
-      }
-
-      const result = await this.genAI.models.generateContent({
+      const result = await this.aiClient.chat({
         model,
-        contents: [{
-          parts: [
-            { text: args.prompt },
-            imagePart
-          ],
-          role: 'user'
-        }]
+        prompt: args.prompt,
+        images: [args.image],
+        temperature: 0.4,
+        maxTokens: 2048
       });
-
-      const text = result.text || '';
 
       return {
         jsonrpc: '2.0',
@@ -678,8 +490,11 @@ class EnhancedStdioMCPServer {
         result: {
           content: [{
             type: 'text',
-            text: text
-          }]
+            text: result.text
+          }],
+          metadata: {
+            provider: result.provider
+          }
         }
       };
     } catch (error) {
@@ -696,70 +511,8 @@ class EnhancedStdioMCPServer {
   }
 
   private async countTokens(id: any, args: any): Promise<MCPResponse> {
-    try {
-      const model = args.model || 'gemini-2.5-flash';
-      
-      const result = await this.genAI.models.countTokens({
-        model,
-        contents: [{
-          parts: [{
-            text: args.text
-          }],
-          role: 'user'
-        }]
-      });
-
-      return {
-        jsonrpc: '2.0',
-        id,
-        result: {
-          content: [{
-            type: 'text',
-            text: `Token count: ${result.totalTokens}`
-          }],
-          metadata: {
-            tokenCount: result.totalTokens,
-            model
-          }
-        }
-      };
-    } catch (error) {
-      return {
-        jsonrpc: '2.0',
-        id,
-        error: {
-          code: -32603,
-          message: error instanceof Error ? error.message : 'Internal error'
-        }
-      };
-    }
-  }
-
-  private listModels(id: any, args: any): MCPResponse {
-    const filter = args?.filter || 'all';
-    let models = Object.entries(GEMINI_MODELS);
-
-    if (filter !== 'all') {
-      models = models.filter(([_, info]) => {
-        switch (filter) {
-          case 'thinking':
-            return 'thinking' in info && info.thinking === true;
-          case 'vision':
-            return info.features.includes('function_calling'); // All current models support vision
-          case 'grounding':
-            return info.features.includes('grounding');
-          case 'json_mode':
-            return info.features.includes('json_mode');
-          default:
-            return true;
-        }
-      });
-    }
-
-    const modelList = models.map(([name, info]) => ({
-      name,
-      ...info
-    }));
+    // Approximate token count (OpenRouter doesn't have a dedicated token count endpoint)
+    const approximateCount = Math.ceil(args.text.length / 4);
 
     return {
       jsonrpc: '2.0',
@@ -767,57 +520,105 @@ class EnhancedStdioMCPServer {
       result: {
         content: [{
           type: 'text',
-          text: JSON.stringify(modelList, null, 2)
+          text: `Approximate token count: ${approximateCount}\n\nNote: Exact token counting requires Google GenAI API. For precise counts, use the Google GenAI client directly.`
         }],
         metadata: {
-          count: modelList.length,
-          filter
+          approximateTokenCount: approximateCount,
+          characterCount: args.text.length
+        }
+      }
+    };
+  }
+
+  private listModels(id: any, args: any): MCPResponse {
+    const filter = args?.filter || 'all';
+    const models = this.aiClient.listModels(filter as any);
+
+    // Add Google direct models
+    const googleModels = Object.entries(ALL_GEMINI_MODELS)
+      .filter(([_, info]) => (info as any).provider === 'google')
+      .filter(([_, info]) => {
+        if (filter === 'all') return true;
+        if (filter === 'thinking') return (info as any).thinking === true;
+        if (filter === 'vision') return true;
+        if (filter === 'video') return (info as any).contextWindow >= 1000000;
+        return true;
+      })
+      .map(([name, info]) => ({
+        id: name,
+        name,
+        ...info
+      }));
+
+    const allModels = [...models, ...googleModels];
+
+    return {
+      jsonrpc: '2.0',
+      id,
+      result: {
+        content: [{
+          type: 'text',
+          text: JSON.stringify(allModels, null, 2)
+        }],
+        metadata: {
+          count: allModels.length,
+          filter,
+          activeProvider: this.activeProvider
         }
       }
     };
   }
 
   private async embedText(id: any, args: any): Promise<MCPResponse> {
-    try {
-      const model = args.model || 'text-embedding-004';
-      
-      const result = await this.genAI.models.embedContent({
-        model,
-        contents: args.text
-      });
+    // Note: Embeddings only available through Google GenAI
+    return {
+      jsonrpc: '2.0',
+      id,
+      error: {
+        code: -32603,
+        message: 'Embeddings are only available through Google GenAI API. Please use the Google GenAI client directly or add GEMINI_API_KEY to your environment.'
+      }
+    };
+  }
 
-      return {
-        jsonrpc: '2.0',
-        id,
-        result: {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              embedding: result.embeddings?.[0]?.values || [],
-              model
-            })
-          }],
-          metadata: {
-            model,
-            dimensions: result.embeddings?.[0]?.values?.length || 0
+  private handleResourcesList(request: MCPRequest): MCPResponse {
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        resources: [
+          {
+            uri: 'gemini://models',
+            name: 'Available Gemini Models',
+            description: 'List of all available Gemini models from OpenRouter and Google GenAI',
+            mimeType: 'application/json'
+          },
+          {
+            uri: 'gemini://capabilities',
+            name: 'API Capabilities',
+            description: 'Detailed information about Gemini API capabilities',
+            mimeType: 'text/markdown'
+          },
+          {
+            uri: 'gemini://help/usage',
+            name: 'Usage Guide',
+            description: 'Complete guide on using all tools and features',
+            mimeType: 'text/markdown'
+          },
+          {
+            uri: 'gemini://help/vision-tools',
+            name: 'Vision Tools Guide',
+            description: 'Guide for specialized vision and video analysis tools',
+            mimeType: 'text/markdown'
           }
-        }
-      };
-    } catch (error) {
-      return {
-        jsonrpc: '2.0',
-        id,
-        error: {
-          code: -32603,
-          message: error instanceof Error ? error.message : 'Internal error'
-        }
-      };
-    }
+        ]
+      }
+    };
   }
 
   private async handleResourceRead(request: MCPRequest): Promise<MCPResponse> {
     const uri = request.params?.uri;
-    
+
     if (!uri) {
       return {
         jsonrpc: '2.0',
@@ -834,53 +635,12 @@ class EnhancedStdioMCPServer {
 
     switch (uri) {
       case 'gemini://models':
-        content = JSON.stringify(GEMINI_MODELS, null, 2);
+        content = JSON.stringify(ALL_GEMINI_MODELS, null, 2);
         mimeType = 'application/json';
         break;
 
       case 'gemini://capabilities':
-        content = `# Gemini API Capabilities
-
-## Text Generation
-- All models support advanced text generation
-- System instructions for behavior control
-- Temperature, topK, topP for output control
-- Token limits vary by model (1M-2M)
-
-## Thinking Models (2.5 Series)
-- Step-by-step reasoning before responding
-- Better accuracy for complex problems
-- Ideal for coding, analysis, and problem-solving
-
-## JSON Mode
-- Structured output with schema validation
-- Available on all models
-- Ensures consistent response format
-
-## Google Search Grounding
-- Real-time web search integration
-- Available on select models
-- Perfect for current events and facts
-
-## Vision Capabilities
-- Image analysis and understanding
-- Available on most models
-- Supports URLs and base64 images
-
-## Embeddings
-- Semantic text embeddings
-- Multiple models available
-- Multilingual support
-
-## Safety Settings
-- Granular content filtering
-- Customizable thresholds
-- Per-category control
-
-## Conversation Memory
-- Context retention across messages
-- Session-based conversations
-- Ideal for multi-turn interactions`;
+        content = this.getCapabilitiesContent();
         mimeType = 'text/markdown';
         break;
 
@@ -889,13 +649,8 @@ class EnhancedStdioMCPServer {
         mimeType = 'text/markdown';
         break;
 
-      case 'gemini://help/parameters':
-        content = this.getHelpContent('parameters');
-        mimeType = 'text/markdown';
-        break;
-
-      case 'gemini://help/examples':
-        content = this.getHelpContent('examples');
+      case 'gemini://help/vision-tools':
+        content = this.getHelpContent('vision-tools');
         mimeType = 'text/markdown';
         break;
 
@@ -923,296 +678,472 @@ class EnhancedStdioMCPServer {
     };
   }
 
+  private handlePromptsList(request: MCPRequest): MCPResponse {
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        prompts: [
+          {
+            name: 'code_review',
+            description: 'Comprehensive code review with Gemini 2.5 Pro',
+            arguments: [
+              { name: 'code', description: 'Code to review', required: true },
+              { name: 'language', description: 'Programming language', required: false }
+            ]
+          },
+          {
+            name: 'explain_with_thinking',
+            description: 'Deep explanation using Gemini 2.5 thinking capabilities',
+            arguments: [
+              { name: 'topic', description: 'Topic to explain', required: true },
+              { name: 'level', description: 'Explanation level', required: false }
+            ]
+          },
+          {
+            name: 'ui_to_code',
+            description: 'Convert UI screenshot to production-ready code',
+            arguments: [
+              { name: 'image', description: 'Base64 screenshot', required: true },
+              { name: 'framework', description: 'Framework (react, vue, etc.)', required: false }
+            ]
+          }
+        ]
+      }
+    };
+  }
+
+  private getCapabilitiesContent(): string {
+    return `# Gemini MCP Server Capabilities v${this.serverVersion}
+
+## API Provider
+- **Primary**: OpenRouter (with fallback to Google GenAI)
+- **Active Provider**: ${this.activeProvider}
+
+## Text Generation
+- All models support advanced text generation
+- System instructions for behavior control
+- Temperature, topK, topP for output control
+- Token limits vary by model (1M-2M)
+
+## Thinking Models (2.5 Series)
+- Step-by-step reasoning before responding
+- Better accuracy for complex problems
+- Ideal for coding, analysis, and problem-solving
+
+## JSON Mode
+- Structured output with schema validation
+- Available on all models
+- Ensures consistent response format
+
+## Vision Capabilities
+- Image analysis and understanding
+- Specialized tools for specific vision tasks:
+  - **ui_to_artifact**: Convert UI to code/prompts/specs
+  - **extract_text_from_screenshot**: OCR text extraction
+  - **diagnose_error_screenshot**: Error analysis
+  - **understand_technical_diagram**: Diagram interpretation
+  - **analyze_data_visualization**: Chart/graph analysis
+  - **ui_diff_check**: Visual comparison
+  - **analyze_image**: General image analysis
+
+## Video Analysis
+- Support for MP4, MOV, M4V formats
+- Key moment extraction
+- Action and object recognition
+- Transcription capabilities
+
+## Model Selection
+### OpenRouter Models (Recommended)
+- \`google/gemini-2.5-flash-preview\` - Best balance (⭐ Recommended)
+- \`google/gemini-2.5-pro-preview\` - Most capable
+- \`google/gemini-2.0-flash-exp\` - Fast with video support
+
+### Direct Google Models
+- \`gemini-2.5-flash\` - Fast thinking model
+- \`gemini-2.5-pro\` - Most capable
+- \`gemini-2.0-flash\` - Fast with video support
+`;
+  }
+
   private getHelpContent(topic: string): string {
-    // Extract help content generation to a separate method
     switch (topic) {
       case 'overview':
-        return `# Gemini MCP Server Help
+        return `# Gemini MCP Server v${this.serverVersion}
 
-Welcome to the Gemini MCP Server v4.1.0! This server provides access to Google's Gemini AI models through Claude Desktop.
+Welcome! This server provides access to Google's Gemini AI models through OpenRouter with fallback to Google GenAI.
 
-## Available Tools
-1. **generate_text** - Generate text with advanced features
-2. **analyze_image** - Analyze images using vision models
-3. **count_tokens** - Count tokens for cost estimation
-4. **list_models** - List all available models
-5. **embed_text** - Generate text embeddings
-6. **get_help** - Get help on using this server
+## Available Tool Categories
+
+### Core Tools
+- **generate_text** - Generate text with advanced features
+- **analyze_image** - General image analysis
+- **list_models** - List all available models
+- **get_help** - Get help documentation
+
+### Vision Tools (New!)
+- **ui_to_artifact** - Convert UI to code/prompts/specs
+- **extract_text_from_screenshot** - OCR text extraction
+- **diagnose_error_screenshot** - Error diagnosis
+- **understand_technical_diagram** - Diagram analysis
+- **analyze_data_visualization** - Chart/graph analysis
+- **ui_diff_check** - Visual comparison
+- **analyze_video** - Video content analysis
 
 ## Quick Start
-- "Use Gemini to explain [topic]"
-- "Analyze this image with Gemini"
-- "List all Gemini models"
-- "Get help on parameters"
+- "Generate text about [topic]"
+- "Convert this UI to React code"
+- "Extract text from this screenshot"
+- "Analyze this error screenshot"
 
-## Key Features
-- Latest Gemini 2.5 models with thinking capabilities
-- JSON mode for structured output
-- Google Search grounding for current information
-- System instructions for behavior control
-- Conversation memory for context
-- Safety settings customization
+## Configuration
+Set environment variables:
+- \`OPENROUTER_API_KEY\` - OpenRouter API key (recommended)
+- \`GEMINI_API_KEY\` - Google GenAI API key (fallback)
 
-Use "get help on tools" for detailed tool information.`;
+Both are optional - the server will use whichever is available.`;
 
       case 'tools':
         return `# Available Tools
 
-## 1. generate_text
-Generate text using Gemini models with advanced features.
+## Core Tools
 
-**Parameters:**
+### generate_text
+Generate text using Gemini models with advanced features.
 - prompt (required): Your text prompt
-- model: Choose from gemini-2.5-pro, gemini-2.5-flash, etc.
+- model: Gemini model ID
 - temperature: 0-2 (default 0.7)
-- maxTokens: Max output tokens (default 2048)
+- maxTokens: Max output tokens
 - systemInstruction: Guide model behavior
 - jsonMode: Enable JSON output
-- grounding: Enable Google Search
-- conversationId: Maintain conversation context
 
-**Example:** "Use Gemini 2.5 Pro to explain quantum computing"
-
-## 2. analyze_image
-Analyze images using vision-capable models.
-
-**Parameters:**
+### analyze_image
+General-purpose image analysis.
 - prompt (required): Question about the image
-- imageUrl OR imageBase64 (required): Image source
-- model: Vision-capable model (default gemini-2.5-flash)
+- image (required): Base64 or URL
+- model: Model to use
 
-**Example:** "Analyze this architecture diagram"
+### list_models
+List available models with filtering.
+- filter: all, thinking, vision, video
 
-## 3. count_tokens
-Count tokens for text with a specific model.
+## Vision Tools
 
-**Parameters:**
-- text (required): Text to count
-- model: Model for counting (default gemini-2.5-flash)
+### ui_to_artifact
+Convert UI screenshots to code, prompts, specs, or descriptions.
+- image (required): Screenshot
+- outputType (required): code, prompt, spec, or description
+- framework: For code output (react, vue, etc.)
 
-**Example:** "Count tokens for this paragraph"
+### extract_text_from_screenshot
+Extract text with OCR accuracy.
+- image (required): Screenshot
+- preserveFormatting: Keep layout
+- programmingLanguage: For code extraction
 
-## 4. list_models
-List available models with optional filtering.
+### diagnose_error_screenshot
+Analyze errors and provide fixes.
+- image (required): Error screenshot
+- context: When the error occurred
+- programmingLanguage: Language being used
 
-**Parameters:**
-- filter: all, thinking, vision, grounding, json_mode
+### understand_technical_diagram
+Analyze technical diagrams.
+- image (required): Diagram
+- diagramType: architecture, flowchart, uml, er-diagram, etc.
+- detailLevel: brief, detailed, comprehensive
 
-**Example:** "List models with thinking capability"
+### analyze_data_visualization
+Extract insights from charts and graphs.
+- image (required): Visualization
+- focus: trends, anomalies, comparisons, insights
+- includeMetrics: Show exact values
 
-## 5. embed_text
-Generate embeddings for semantic search.
+### ui_diff_check
+Compare two UI screenshots.
+- expectedImage (required): Reference UI
+- actualImage (required): Implementation UI
+- detailLevel: summary, detailed, pixel-perfect
 
-**Parameters:**
-- text (required): Text to embed
-- model: text-embedding-004 or text-multilingual-embedding-002
+### analyze_video
+Analyze video content.
+- video (required): Base64 or URL
+- prompt (required): What to analyze
+- focus: summary, actions, objects, transcript`;
 
-**Example:** "Generate embeddings for similarity search"
+      case 'vision-tools':
+        return `# Vision Tools Guide
 
-## 6. get_help
-Get help on using this server.
+## UI to Artifact
+Convert screenshots into:
+- **code**: Production-ready React/Vue/HTML
+- **prompt**: Detailed AI generation prompt
+- **spec**: Design specification document
+- **description**: Natural language description
 
-**Parameters:**
-- topic: overview, tools, models, parameters, examples, quick-start
+Example:
+\`\`\`
+{
+  "image": "data:image/png;base64,...",
+  "outputType": "code",
+  "framework": "react",
+  "language": "typescript"
+}
+\`\`\`
 
-**Example:** "Get help on parameters"`;
+## Text Extraction (OCR)
+Extract text from:
+- Code screenshots (specify language)
+- Terminal output
+- Documentation pages
+- Any text-containing image
+
+Example:
+\`\`\`
+{
+  "image": "data:image/png;base64,...",
+  "programmingLanguage": "rust",
+  "preserveFormatting": true
+}
+\`\`\`
+
+## Error Diagnosis
+Get actionable solutions for:
+- Compile errors
+- Runtime exceptions
+- Build failures
+- Test failures
+
+Example:
+\`\`\`
+{
+  "image": "data:image/png;base64,...",
+  "context": "during npm install",
+  "programmingLanguage": "nodejs"
+}
+\`\`\`
+
+## Diagram Understanding
+Analyze:
+- Architecture diagrams
+- Flowcharts
+- UML diagrams
+- ER diagrams
+- Network topology
+
+Example:
+\`\`\`
+{
+  "image": "data:image/png;base64,...",
+  "diagramType": "architecture",
+  "detailLevel": "detailed"
+}
+\`\`\`
+
+## Data Visualization
+Extract from:
+- Line charts
+- Bar charts
+- Pie charts
+- Dashboards
+- Statistical plots
+
+Example:
+\`\`\`
+{
+  "image": "data:image/png;base64,...",
+  "focus": "trends",
+  "includeMetrics": true
+}
+\`\`\`
+
+## UI Diff Check
+Compare design vs implementation:
+- Layout differences
+- Visual variations
+- Missing/extra elements
+- Accessibility issues
+
+Example:
+\`\`\`
+{
+  "expectedImage": "data:image/png;base64,...",
+  "actualImage": "data:image/png;base64,...",
+  "detailLevel": "detailed",
+  "checkAccessibility": true
+}
+\`\`\`
+
+## Video Analysis
+Supports:
+- MP4, MOV, M4V formats
+- Action recognition
+- Object tracking
+- Transcription
+
+Example:
+\`\`\`
+{
+  "video": "data:video/mp4;base64,...",
+  "prompt": "Describe what happens in this video",
+  "focus": "detailed"
+}
+\`\`\`
+`;
+
+      case 'models':
+        return `# Available Gemini Models
+
+## OpenRouter Models (Recommended)
+
+### Thinking Models (2.5 Series)
+**google/gemini-2.5-pro-preview**
+- Most capable for complex reasoning
+- 2M token context
+- Vision and video support
+
+**google/gemini-2.5-flash-preview** ⭐
+- Best balance of speed/cost
+- 1M token context
+- Vision and video support
+
+**google/gemini-2.5-flash-exp**
+- Experimental 2.5 Flash
+- Same capabilities as preview
+
+### Standard Models
+**google/gemini-2.0-flash-exp**
+- Fast with 1M context
+- Video support
+- Cost-efficient
+
+## Direct Google Models
+
+**gemini-2.5-pro**
+- Direct access via Google GenAI
+- 2M context, thinking mode
+
+**gemini-2.5-flash**
+- Direct access, fast thinking
+- 1M context
+
+**gemini-2.0-flash**
+- Direct access with video
+- 1M context
+
+## Selection Guide
+- Complex reasoning: gemini-2.5-pro
+- General use: gemini-2.5-flash
+- Video analysis: gemini-2.0-flash
+- Cost-sensitive: gemini-2.0-flash-lite`;
 
       case 'parameters':
         return `# Parameter Reference
 
-## generate_text Parameters
+## generate_text
+- **prompt** (required): Text prompt
+- **model**: Model ID (default: google/gemini-2.5-flash-preview)
+- **temperature**: 0-2, default 0.7
+- **maxTokens**: Default 2048
+- **systemInstruction**: System prompt
+- **jsonMode**: Enable JSON output
 
-**Required:**
-- prompt (string): Your text prompt
+## ui_to_artifact
+- **image** (required): Base64 or URL
+- **outputType** (required): code|prompt|spec|description
+- **framework**: react|vue|angular|html
+- **language**: typescript|javascript|python
 
-**Optional:**
-- model (string): Model to use (default: gemini-2.5-flash)
-- systemInstruction (string): System prompt for behavior
-- temperature (0-2): Creativity level (default: 0.7)
-- maxTokens (number): Max output tokens (default: 2048)
-- topK (number): Top-k sampling (default: 40)
-- topP (number): Nucleus sampling (default: 0.95)
-- jsonMode (boolean): Enable JSON output
-- jsonSchema (object): JSON schema for validation
-- grounding (boolean): Enable Google Search
-- conversationId (string): Conversation identifier
-- safetySettings (array): Content filtering settings
+## extract_text_from_screenshot
+- **image** (required): Base64 or URL
+- **preserveFormatting**: Default true
+- **includeConfidence**: Mark unclear text
+- **programmingLanguage**: For code images
 
-## Temperature Guide
-- 0.1-0.3: Precise, factual
-- 0.5-0.8: Balanced (default 0.7)
-- 1.0-1.5: Creative
-- 1.5-2.0: Very creative
-
-## JSON Mode Example
-Enable jsonMode and provide jsonSchema:
-{
-  "type": "object",
-  "properties": {
-    "sentiment": {"type": "string"},
-    "score": {"type": "number"}
-  }
-}
-
-## Safety Settings
-Categories: HARASSMENT, HATE_SPEECH, SEXUALLY_EXPLICIT, DANGEROUS_CONTENT
-Thresholds: BLOCK_NONE, BLOCK_ONLY_HIGH, BLOCK_MEDIUM_AND_ABOVE, BLOCK_LOW_AND_ABOVE`;
+## analyze_video
+- **video** (required): Base64 or URL (MP4/MOV/M4V)
+- **prompt** (required): Analysis question
+- **focus**: summary|actions|objects|transcript|detailed`;
 
       case 'examples':
         return `# Usage Examples
 
-## Basic Text Generation
-"Use Gemini to explain machine learning"
+## Text Generation
+"Generate a Python function for binary search"
 
-## With Specific Model
-"Use Gemini 2.5 Pro to write a Python sorting function"
+## UI to Code
+"Convert this UI screenshot to React TypeScript code"
 
-## With Temperature
-"Use Gemini with temperature 1.5 to write a creative story"
+## Error Diagnosis
+"Analyze this error screenshot and tell me how to fix it"
 
-## JSON Mode
-"Use Gemini in JSON mode to analyze sentiment and return {sentiment, confidence, keywords}"
+## Text Extraction
+"Extract all the text from this code screenshot"
 
-## With Grounding
-"Use Gemini with grounding to research latest AI developments"
+## Diagram Analysis
+"Explain this architecture diagram in detail"
 
-## System Instructions
-"Use Gemini as a Python tutor to explain decorators"
+## Data Visualization
+"What trends do you see in this chart?"
 
-## Conversation Context
-"Start conversation 'chat-001' about web development"
-"Continue chat-001 and ask about React hooks"
+## Video Analysis
+"Summarize what happens in this video"
 
-## Image Analysis
-"Analyze this screenshot and describe the UI elements"
+## UI Comparison
+"Compare these two screenshots and list all differences"`;
 
-## Token Counting
-"Count tokens for this document using gemini-2.5-pro"
+      case 'quick-start':
+        return `# Quick Start Guide
 
-## Complex Example
-"Use Gemini 2.5 Pro to review this code with:
-- System instruction: 'You are a security expert'
-- Temperature: 0.3
-- JSON mode with schema for findings
-- Grounding for latest security practices"`;
+## 1. Installation
+\`\`\`bash
+npm install mcp-server-gemini
+\`\`\`
+
+## 2. Configuration
+Add to Claude Desktop config (\`claude_desktop_config.json\`):
+\`\`\`json
+{
+  "mcpServers": {
+    "gemini": {
+      "command": "node",
+      "args": ["path/to/mcp-server-gemini/dist/enhanced-stdio-server.js"],
+      "env": {
+        "OPENROUTER_API_KEY": "your-key-here"
+      }
+    }
+  }
+}
+\`\`\`
+
+## 3. Usage in Claude
+- "Generate a summary of quantum computing"
+- "Convert this UI to code" [attach screenshot]
+- "What's wrong with this code?" [attach error screenshot]
+- "Extract the text from this image"
+
+## 4. Vision Tools
+All vision tools accept base64 data URLs:
+\`\`\`
+data:image/png;base64,iVBORw0KGgo...
+data:image/jpeg;base64,/9j/4AAQ...
+data:video/mp4;base64,AAAAIGZ0...
+\`\`\`
+
+## 5. Tips
+- Use \`gemini-2.5-flash\` for most tasks
+- Lower temperature for facts, higher for creativity
+- Specify programming language for code extraction
+- Use diagram type for better diagram analysis`;
 
       default:
-        return 'Unknown help topic.';
+        return 'Unknown help topic. Available: overview, tools, models, vision-tools, parameters, examples, quick-start';
     }
   }
 
   private getHelp(id: any, args: any): MCPResponse {
     const topic = args?.topic || 'overview';
-    let helpContent = '';
-
-    switch (topic) {
-      case 'overview':
-        helpContent = this.getHelpContent('overview');
-        break;
-
-      case 'tools':
-        helpContent = this.getHelpContent('tools');
-        break;
-
-      case 'models':
-        helpContent = `# Available Gemini Models
-
-## Thinking Models (Latest - 2.5 Series)
-**gemini-2.5-pro**
-- Most capable, best for complex reasoning
-- 2M token context window
-- Features: thinking, JSON mode, grounding, system instructions
-
-**gemini-2.5-flash** ⭐ Recommended
-- Best balance of speed and capability
-- 1M token context window
-- Features: thinking, JSON mode, grounding, system instructions
-
-**gemini-2.5-flash-lite**
-- Ultra-fast, cost-efficient
-- 1M token context window
-- Features: thinking, JSON mode, system instructions
-
-## Standard Models (2.0 Series)
-**gemini-2.0-flash**
-- Fast and efficient
-- 1M token context window
-- Features: JSON mode, grounding, system instructions
-
-**gemini-2.0-flash-lite**
-- Most cost-efficient
-- 1M token context window
-- Features: JSON mode, system instructions
-
-**gemini-2.0-pro-experimental**
-- Excellent for coding
-- 2M token context window
-- Features: JSON mode, grounding, system instructions
-
-## Model Selection Guide
-- Complex reasoning: gemini-2.5-pro
-- General use: gemini-2.5-flash
-- Fast responses: gemini-2.5-flash-lite
-- Cost-sensitive: gemini-2.0-flash-lite
-- Coding tasks: gemini-2.0-pro-experimental`;
-        break;
-
-      case 'parameters':
-        helpContent = this.getHelpContent('parameters');
-        break;
-
-      case 'examples':
-        helpContent = this.getHelpContent('examples');
-        break;
-
-      case 'quick-start':
-        helpContent = `# Quick Start Guide
-
-## 1. Basic Usage
-Just ask naturally:
-- "Use Gemini to [your request]"
-- "Ask Gemini about [topic]"
-
-## 2. Common Tasks
-
-**Text Generation:**
-"Use Gemini to write a function that sorts arrays"
-
-**Image Analysis:**
-"What's in this image?" [attach image]
-
-**Model Info:**
-"List all Gemini models"
-
-**Token Counting:**
-"Count tokens for my prompt"
-
-## 3. Advanced Features
-
-**JSON Output:**
-"Use Gemini in JSON mode to extract key points"
-
-**Current Information:**
-"Use Gemini with grounding to get latest news"
-
-**Conversations:**
-"Start a chat with Gemini about Python"
-
-## 4. Tips
-- Use gemini-2.5-flash for most tasks
-- Lower temperature for facts, higher for creativity
-- Enable grounding for current information
-- Use conversation IDs to maintain context
-
-## Need More Help?
-- "Get help on tools" - Detailed tool information
-- "Get help on parameters" - All parameters explained
-- "Get help on models" - Model selection guide`;
-        break;
-
-      default:
-        helpContent = 'Unknown help topic. Available topics: overview, tools, models, parameters, examples, quick-start';
-    }
+    const helpContent = this.getHelpContent(topic);
 
     return {
       jsonrpc: '2.0',
@@ -1232,11 +1163,13 @@ Just ask naturally:
   }
 }
 
-// Start the server
-const apiKey = process.env.GEMINI_API_KEY;
-if (!apiKey) {
-  console.error('GEMINI_API_KEY environment variable is required');
+// Get API keys from environment
+const openRouterKey = process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY;
+const googleKey = process.env.GEMINI_API_KEY;
+
+if (!openRouterKey && !googleKey) {
+  console.error('Error: Either OPENROUTER_API_KEY or GEMINI_API_KEY environment variable is required');
   process.exit(1);
 }
 
-new EnhancedStdioMCPServer(apiKey);
+new EnhancedStdioMCPServer(openRouterKey, googleKey);
