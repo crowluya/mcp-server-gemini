@@ -1,7 +1,7 @@
 {
   "name": "mcp-server-gemini",
-  "version": "5.0.0",
-  "description": "MCP server for Gemini with OpenRouter integration and specialized vision/video tools. Features include UI-to-code, OCR, error diagnosis, diagram understanding, and video analysis.",
+  "version": "6.0.0",
+  "description": "MCP server for Gemini models via OpenRouter with specialized vision/video tools. Features include UI-to-code, OCR, error diagnosis, diagram understanding, and video analysis.",
   "main": "dist/enhanced-stdio-server.js",
   "bin": {
     "mcp-server-gemini": "./dist/enhanced-stdio-server.js"
@@ -17,9 +17,7 @@
     "format": "prettier --write src/**/*.ts"
   },
   "type": "module",
-  "dependencies": {
-    "@google/genai": "^1.8.0"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/jest": "^29.5.0",
     "@types/node": "^20.10.5",

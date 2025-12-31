@@ -1,7 +1,6 @@
 /**
  * OpenRouter Client for MCP Server
- * Provides unified interface to call Gemini models through OpenRouter
- * with fallback to direct Google GenAI API
+ * Provides interface to call Gemini models through OpenRouter
  */
 
 export type ContentPart = { type: 'text'; text: string }
@@ -311,46 +310,18 @@ export class OpenRouterClient {
 }
 
 /**
- * Create a unified client that tries OpenRouter first, falls back to Google GenAI
+ * Main MCP Client - uses OpenRouter exclusively
  */
-export class UnifiedAIClient {
-  private openRouterClient: OpenRouterClient | null = null;
-  private googleGenAI: any | null = null;
-  private useOpenRouter: boolean = true;
+export class MCPClient {
+  private openRouterClient: OpenRouterClient;
 
-  constructor(
-    openRouterKey?: string,
-    googleKey?: string,
-    baseURL?: string
-  ) {
-    if (openRouterKey) {
-      this.openRouterClient = new OpenRouterClient({
-        apiKey: openRouterKey,
-        baseURL
-      });
-      this.useOpenRouter = true;
-    }
-
-    if (googleKey) {
-      // Lazy load Google GenAI
-      this.googleGenAI = googleKey;
-    }
+  constructor(openRouterKey: string, baseURL?: string) {
+    this.openRouterClient = new OpenRouterClient({
+      apiKey: openRouterKey,
+      baseURL
+    });
   }
 
-  /**
-   * Get the active API (OpenRouter or Google GenAI)
-   */
-  private async getGoogleGenAI(): Promise<any> {
-    if (typeof this.googleGenAI === 'string') {
-      const { GoogleGenAI } = await import('@google/genai');
-      this.googleGenAI = new GoogleGenAI({ apiKey: this.googleGenAI as string });
-    }
-    return this.googleGenAI;
-  }
-
-  /**
-   * Chat with automatic fallback
-   */
   async chat(params: {
     model?: string;
     prompt: string;
@@ -360,106 +331,11 @@ export class UnifiedAIClient {
     temperature?: number;
     maxTokens?: number;
     responseFormat?: { type: 'text' | 'json_object' };
-  }): Promise<{ text: string; usage?: { total_tokens: number }; provider: 'openrouter' | 'google' }> {
-    // Try OpenRouter first
-    if (this.openRouterClient && this.useOpenRouter) {
-      try {
-        const result = await this.openRouterClient.chat(params);
-        return { ...result, provider: 'openrouter' as const };
-      } catch (error) {
-        console.error('OpenRouter request failed, falling back to Google GenAI:', error);
-        // Fall through to Google GenAI
-      }
-    }
-
-    // Fallback to Google GenAI
-    if (this.googleGenAI) {
-      const genAI = await this.getGoogleGenAI();
-
-      // Map OpenRouter model IDs to Google model IDs
-      const modelMap: Record<string, string> = {
-        'google/gemini-2.5-flash-preview': 'gemini-2.5-flash',
-        'google/gemini-2.5-flash-exp': 'gemini-2.5-flash',
-        'google/gemini-2.5-pro-preview': 'gemini-2.5-pro',
-        'google/gemini-2.0-flash-exp': 'gemini-2.0-flash',
-        'google/gemini-pro-1.5': 'gemini-1.5-pro',
-        'google/gemini-flash-1.5': 'gemini-1.5-flash',
-        'google/gemini-exp-1206': 'gemini-2.5-flash'
-      };
-
-      const model = modelMap[params.model || 'google/gemini-2.5-flash-preview'] || 'gemini-2.5-flash';
-
-      const requestBody: any = {
-        model,
-        contents: [{
-          parts: [{ text: params.prompt }],
-          role: 'user'
-        }]
-      };
-
-      // Add system instruction
-      if (params.systemInstruction) {
-        requestBody.systemInstruction = {
-          parts: [{ text: params.systemInstruction }]
-        };
-      }
-
-      // Add images
-      if (params.images && params.images.length > 0) {
-        const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [{ text: params.prompt }];
-        for (const image of params.images) {
-          const match = image.match(/^data:(.+);base64,(.+)$/);
-          if (match) {
-            parts.push({
-              inlineData: {
-                mimeType: match[1],
-                data: match[2]
-              }
-            });
-          }
-        }
-        requestBody.contents[0].parts = parts;
-      }
-
-      // Add generation config
-      requestBody.generationConfig = {
-        temperature: params.temperature || 0.7,
-        maxOutputTokens: params.maxTokens || 2048
-      };
-
-      // Add JSON mode if requested
-      if (params.responseFormat?.type === 'json_object') {
-        requestBody.generationConfig.responseMimeType = 'application/json';
-      }
-
-      const result = await genAI.models.generateContent(requestBody);
-      return {
-        text: result.text || '',
-        usage: { total_tokens: result.usageMetadata?.totalTokenCount || 0 },
-        provider: 'google' as const
-      };
-    }
-
-    throw new Error('No AI provider available');
+  }): Promise<{ text: string; usage?: { total_tokens: number } }> {
+    return await this.openRouterClient.chat(params);
   }
 
-  /**
-   * Check video support for current provider
-   */
-  supportsVideo(provider: 'openrouter' | 'google' = 'openrouter'): boolean {
-    if (provider === 'openrouter') {
-      return !!this.openRouterClient;
-    }
-    return !!this.googleGenAI;
-  }
-
-  /**
-   * List available models
-   */
   listModels(filter?: 'all' | 'thinking' | 'vision' | 'video') {
-    if (this.openRouterClient) {
-      return this.openRouterClient.listModels(filter);
-    }
-    return [];
+    return this.openRouterClient.listModels(filter);
   }
 }

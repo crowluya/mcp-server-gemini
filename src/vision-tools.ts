@@ -3,7 +3,7 @@
  * Provides specialized tools for image and video analysis
  */
 
-import { UnifiedAIClient } from './openrouter-client.js';
+import { MCPClient } from './openrouter-client.js';
 
 export interface ToolResponse {
   content: Array<{ type: string; text: string }>;
@@ -12,10 +12,73 @@ export interface ToolResponse {
 }
 
 /**
+ * Model keyword mappings for natural language detection
+ */
+const MODEL_KEYWORDS: Record<string, string[]> = {
+  'google/gemini-3-flash-preview': ['gemini 3', 'gemini-3', 'g-3', 'g3'],
+  'google/gemini-2.5-flash': ['gemini 2.5', 'gemini-2.5', '2.5 flash', 'g-2.5'],
+  'google/gemini-2.5-flash-lite': ['gemini 2.5 lite', 'gemini-2.5-lite', '2.5 lite', 'g-lite'],
+  'google/gemini-2.5-pro-preview': ['gemini 2.5 pro', 'gemini-2.5-pro', '2.5 pro', 'g-pro'],
+  'google/gemini-2.0-flash-exp': ['gemini 2.0', 'gemini-2.0', 'g-2.0'],
+  'anthropic/claude-3.5-sonnet': ['claude', 'claude 3.5', 'c-3.5'],
+  'openai/gpt-4o': ['gpt-4o', 'gpt4o', 'gpt4'],
+};
+
+const KEYWORD_TO_MODEL: Map<string, string> = new Map();
+for (const [modelId, keywords] of Object.entries(MODEL_KEYWORDS)) {
+  for (const keyword of keywords) {
+    KEYWORD_TO_MODEL.set(keyword.toLowerCase(), modelId);
+    KEYWORD_TO_MODEL.set(keyword.replace(/\s+/g, '').toLowerCase(), modelId);
+  }
+}
+
+/**
+ * Detect model from text using keyword matching
+ */
+export function detectModelFromText(text: string, defaultModel: string): string {
+  if (!text) return defaultModel;
+
+  const lowerText = text.toLowerCase();
+
+  // Check for exact keywords
+  for (const [keyword, modelId] of KEYWORD_TO_MODEL) {
+    if (lowerText.includes(keyword)) {
+      return modelId;
+    }
+  }
+
+  // Check for gemini X.Y pattern
+  const geminiPattern = /gemini[-\s]?(\d+\.\d+)(?:[-\s]?(\w+))?/i;
+  const match = lowerText.match(geminiPattern);
+  if (match) {
+    const version = match[1];
+    const suffix = match[2];
+
+    let modelId = `google/gemini-${version}`;
+    if (suffix === 'pro' || suffix === 'p') {
+      modelId += '-pro-preview';
+    } else if (suffix === 'lite' || suffix === 'l') {
+      modelId += '-flash-lite';
+    } else {
+      modelId += '-flash-preview';
+    }
+
+    // For version 3, use the correct preview name
+    if (version === '3' || version === '3.0') {
+      modelId = 'google/gemini-3-flash-preview';
+    }
+
+    return modelId;
+  }
+
+  return defaultModel;
+}
+
+/**
  * ui_to_artifact - Convert UI screenshots to code, prompts, design specs, or descriptions
  */
 export async function uiToArtifact(
-  client: UnifiedAIClient,
+  client: MCPClient,
   params: {
     image: string; // base64 or URL
     outputType: 'code' | 'prompt' | 'spec' | 'description';
@@ -24,7 +87,7 @@ export async function uiToArtifact(
     model?: string; // Custom model ID (any OpenRouter model)
   }
 ): Promise<ToolResponse> {
-  const { image, outputType, framework = 'react', language = 'typescript', model = 'google/gemini-2.5-flash-preview' } = params;
+  const { image, outputType, framework = 'react', language = 'typescript', model = 'google/gemini-2.5-flash' } = params;
 
   const systemInstructions: Record<string, string> = {
     code: `You are an expert frontend developer specializing in converting UI designs into clean, modern code.
@@ -108,8 +171,7 @@ Write in clear, descriptive prose.`
         outputType,
         framework,
         language,
-        model,
-        provider: result.provider
+        model
       }
     };
   } catch (error) {
@@ -127,7 +189,7 @@ Write in clear, descriptive prose.`
  * extract_text_from_screenshot - Extract and recognize text from screenshots using OCR
  */
 export async function extractTextFromScreenshot(
-  client: UnifiedAIClient,
+  client: MCPClient,
   params: {
     image: string; // base64 or URL
     preserveFormatting?: boolean;
@@ -136,7 +198,7 @@ export async function extractTextFromScreenshot(
     model?: string; // Custom model ID (any OpenRouter model)
   }
 ): Promise<ToolResponse> {
-  const { image, preserveFormatting = true, includeConfidence = false, programmingLanguage, model = 'google/gemini-2.5-flash-preview' } = params;
+  const { image, preserveFormatting = true, includeConfidence = false, programmingLanguage, model = 'google/gemini-2.5-flash' } = params;
 
   let systemInstruction = `You are an expert OCR (Optical Character Recognition) specialist with exceptional accuracy in extracting text from images.
 Your task is to extract ALL text from the provided image with perfect accuracy.
@@ -182,8 +244,7 @@ Guidelines:
       metadata: {
         preserveFormatting,
         programmingLanguage,
-        model,
-        provider: result.provider
+        model
       }
     };
   } catch (error) {
@@ -201,7 +262,7 @@ Guidelines:
  * diagnose_error_screenshot - Diagnose error messages, stack traces, and exception screenshots
  */
 export async function diagnoseErrorScreenshot(
-  client: UnifiedAIClient,
+  client: MCPClient,
   params: {
     image: string; // base64 or URL
     context?: string; // Additional context about when the error occurred
@@ -255,8 +316,7 @@ Be specific, practical, and include working code examples when relevant.`;
       metadata: {
         hasContext: !!context,
         programmingLanguage,
-        model,
-        provider: result.provider
+        model
       }
     };
   } catch (error) {
@@ -274,7 +334,7 @@ Be specific, practical, and include working code examples when relevant.`;
  * understand_technical_diagram - Understand architecture diagrams, flowcharts, UML, ER diagrams
  */
 export async function understandTechnicalDiagram(
-  client: UnifiedAIClient,
+  client: MCPClient,
   params: {
     image: string; // base64 or URL
     diagramType?: 'architecture' | 'flowchart' | 'uml' | 'er-diagram' | 'sequence' | 'network' | 'auto';
@@ -282,7 +342,7 @@ export async function understandTechnicalDiagram(
     model?: string; // Custom model ID (any OpenRouter model)
   }
 ): Promise<ToolResponse> {
-  const { image, diagramType = 'auto', detailLevel = 'detailed', model = 'google/gemini-2.5-flash-preview' } = params;
+  const { image, diagramType = 'auto', detailLevel = 'detailed', model = 'google/gemini-2.5-flash' } = params;
 
   const systemInstructions: Record<string, string> = {
     architecture: `You are a software architect specializing in system design.
@@ -368,8 +428,7 @@ Cover the key elements, relationships, flow, and any technical implications.`
       metadata: {
         diagramType,
         detailLevel,
-        model,
-        provider: result.provider
+        model
       }
     };
   } catch (error) {
@@ -387,7 +446,7 @@ Cover the key elements, relationships, flow, and any technical implications.`
  * analyze_data_visualization - Analyze charts, graphs, dashboards, and data visualizations
  */
 export async function analyzeDataVisualization(
-  client: UnifiedAIClient,
+  client: MCPClient,
   params: {
     image: string; // base64 or URL
     focus?: 'trends' | 'anomalies' | 'comparisons' | 'insights' | 'comprehensive';
@@ -395,7 +454,7 @@ export async function analyzeDataVisualization(
     model?: string; // Custom model ID (any OpenRouter model)
   }
 ): Promise<ToolResponse> {
-  const { image, focus = 'comprehensive', includeMetrics = true, model = 'google/gemini-2.5-flash-preview' } = params;
+  const { image, focus = 'comprehensive', includeMetrics = true, model = 'google/gemini-2.5-flash' } = params;
 
   const systemInstruction = `You are a data analyst specializing in visualization interpretation and business intelligence.
 Your task is to extract meaningful insights from data visualizations.
@@ -441,8 +500,7 @@ Be precise, data-driven, and focus on business-relevant insights.`;
       metadata: {
         focus,
         includeMetrics,
-        model,
-        provider: result.provider
+        model
       }
     };
   } catch (error) {
@@ -460,7 +518,7 @@ Be precise, data-driven, and focus on business-relevant insights.`;
  * ui_diff_check - Compare two UI screenshots to identify visual differences
  */
 export async function uiDiffCheck(
-  client: UnifiedAIClient,
+  client: MCPClient,
   params: {
     expectedImage: string; // base64 or URL - the reference/design
     actualImage: string; // base64 or URL - the implementation
@@ -521,8 +579,7 @@ Format as a structured comparison report.`;
       metadata: {
         detailLevel,
         checkAccessibility,
-        model,
-        provider: result.provider
+        model
       }
     };
   } catch (error) {
@@ -540,7 +597,7 @@ Format as a structured comparison report.`;
  * analyze_image - General-purpose image analysis for scenarios not covered by specialized tools
  */
 export async function analyzeImage(
-  client: UnifiedAIClient,
+  client: MCPClient,
   params: {
     image: string; // base64 or URL
     prompt: string; // Custom analysis prompt
@@ -548,7 +605,7 @@ export async function analyzeImage(
     model?: string; // Custom model ID (any OpenRouter model)
   }
 ): Promise<ToolResponse> {
-  const { image, prompt, detailLevel = 'standard', model = 'google/gemini-2.5-flash-preview' } = params;
+  const { image, prompt, detailLevel = 'standard', model = 'google/gemini-2.5-flash' } = params;
 
   const systemInstruction = `You are a versatile visual analyst with expertise across multiple domains.
 Provide accurate, helpful, and well-structured responses to image analysis requests.
@@ -583,8 +640,7 @@ Be thorough but concise, and organize your output clearly.`;
       }],
       metadata: {
         detailLevel,
-        model,
-        provider: result.provider
+        model
       }
     };
   } catch (error) {
@@ -602,7 +658,7 @@ Be thorough but concise, and organize your output clearly.`;
  * analyze_video - Analyze video content using Gemini's video understanding capabilities
  */
 export async function analyzeVideo(
-  client: UnifiedAIClient,
+  client: MCPClient,
   params: {
     video: string; // base64 data URL (video/mp4, video/mov, video/m4v)
     prompt: string; // What to analyze in the video
@@ -643,7 +699,6 @@ export async function analyzeVideo(
       metadata: {
         focus,
         model,
-        provider: result.provider,
         videoSupported: true
       }
     };
@@ -694,8 +749,8 @@ export const visionToolHandlers = {
 export function getVisionToolSchemas() {
   const commonModelProperty = {
     type: 'string',
-    description: 'Any OpenRouter model ID (e.g., google/gemini-2.5-flash-preview, anthropic/claude-3.5-sonnet, openai/gpt-4o, etc.)',
-    default: 'google/gemini-2.5-flash-preview'
+    description: 'Any OpenRouter model ID (e.g., google/gemini-2.5-flash, anthropic/claude-3.5-sonnet, openai/gpt-4o, etc.)',
+    default: 'google/gemini-2.5-flash'
   };
 
   return [
@@ -920,7 +975,7 @@ export function getVisionToolSchemas() {
           model: {
             ...commonModelProperty,
             default: 'google/gemini-2.0-flash-exp',
-            description: 'Any OpenRouter model ID with video support (e.g., google/gemini-2.0-flash-exp, google/gemini-2.5-flash-preview)'
+            description: 'Any OpenRouter model ID with video support (e.g., google/gemini-2.0-flash-exp, google/gemini-2.5-flash)'
           }
         },
         required: ['video', 'prompt']

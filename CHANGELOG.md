@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.0.0] - 2025-12-31
+
+### Breaking Changes
+- **Removed Google GenAI support**: Server now exclusively uses OpenRouter API
+- **Removed `embed_text` tool**: Text embedding functionality removed (was Google GenAI only)
+- **Removed `GEMINI_API_KEY` configuration**: Only `OPENROUTER_API_KEY` is now required
+
+### Changed
+- Removed `@google/genai` dependency - no external dependencies required
+- Simplified `MCPClient` class replacing `UnifiedAIClient`
+- Updated all documentation to reflect OpenRouter-only configuration
+- Removed all Google GenAI fallback logic (~150 lines of code removed)
+- Server version bumped to 6.0.0
+
+### Improved
+- **Simpler configuration**: Only `OPENROUTER_API_KEY` environment variable needed
+- **Smaller package size**: Removed unnecessary dependency
+- **Cleaner codebase**: ~200 lines of code removed
+
+### Migration from v5.x
+```json
+// Before (v5.x)
+{
+  "env": {
+    "OPENROUTER_API_KEY": "sk-or-v1-xxx",
+    "GEMINI_API_KEY": "optional-fallback"
+  }
+}
+
+// After (v6.0)
+{
+  "env": {
+    "OPENROUTER_API_KEY": "sk-or-v1-xxx"
+  }
+}
+```
+
 ## [5.0.0] - 2025-12-31
 
 ### Added

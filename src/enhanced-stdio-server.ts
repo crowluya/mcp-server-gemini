@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createInterface } from 'readline';
 import { MCPRequest, MCPResponse } from './types.js';
-import { UnifiedAIClient, OPENROUTER_GEMINI_MODELS } from './openrouter-client.js';
+import { MCPClient, OPENROUTER_GEMINI_MODELS } from './openrouter-client.js';
 import { visionToolHandlers, getVisionToolSchemas } from './vision-tools.js';
 
 // Increase max buffer size for large images (10MB)
@@ -9,89 +9,158 @@ if (process.stdin.setEncoding) {
   process.stdin.setEncoding('utf8');
 }
 
-// Combine models from both sources for listing
-const ALL_GEMINI_MODELS = {
-  // Direct Google models (legacy naming)
-  'gemini-2.5-pro': {
-    description: 'Most capable thinking model, best for complex reasoning and coding',
-    features: ['thinking', 'function_calling', 'json_mode', 'grounding', 'system_instructions'],
-    contextWindow: 2000000,
-    thinking: true,
-    provider: 'google'
-  },
-  'gemini-2.5-flash': {
-    description: 'Fast thinking model with best price/performance ratio',
-    features: ['thinking', 'function_calling', 'json_mode', 'grounding', 'system_instructions'],
-    contextWindow: 1000000,
-    thinking: true,
-    provider: 'google'
-  },
-  'gemini-2.0-flash': {
-    description: 'Fast, efficient model with 1M context window',
-    features: ['function_calling', 'json_mode', 'grounding', 'system_instructions'],
-    contextWindow: 1000000,
-    provider: 'google'
-  },
-  'gemini-1.5-pro': {
-    description: 'Previous generation pro model',
-    features: ['function_calling', 'json_mode', 'system_instructions'],
-    contextWindow: 2000000,
-    provider: 'google'
-  },
-  'gemini-1.5-flash': {
-    description: 'Previous generation fast model',
-    features: ['function_calling', 'json_mode', 'system_instructions'],
-    contextWindow: 1000000,
-    provider: 'google'
-  },
-  // OpenRouter models
-  ...Object.fromEntries(
-    Object.entries(OPENROUTER_GEMINI_MODELS).map(([id, info]) => [
-      id,
-      { ...info, provider: 'openrouter' as const }
-    ])
-  )
+/**
+ * Model keyword mappings for natural language detection
+ * Maps keywords/patterns to actual model IDs
+ */
+const MODEL_KEYWORDS: Record<string, string[]> = {
+  'google/gemini-2.5-flash-preview': [
+    'gemini 2.5', 'gemini-2.5', '2.5 flash', 'gemini 2.5 flash', 'gemini2.5', 'g-2.5'
+  ],
+  'google/gemini-2.5-flash-lite': [
+    'gemini 2.5 lite', 'gemini-2.5-lite', '2.5 lite', 'gemini 2.5 flash lite', 'gemini lite', 'g-lite'
+  ],
+  'google/gemini-2.5-pro-preview': [
+    'gemini 2.5 pro', 'gemini-2.5-pro', '2.5 pro', 'gemini pro', 'g-pro', 'gemini pro 2.5'
+  ],
+  'google/gemini-2.0-flash-exp': [
+    'gemini 2.0', 'gemini-2.0', '2.0 flash', 'gemini 2.0 flash', 'g-2.0'
+  ],
+  'google/gemini-1.5-flash': [
+    'gemini 1.5 flash', 'gemini-1.5-flash', '1.5 flash', 'g-1.5-flash'
+  ],
+  'google/gemini-1.5-pro': [
+    'gemini 1.5 pro', 'gemini-1.5-pro', '1.5 pro', 'g-1.5-pro'
+  ],
+  'google/gemini-exp-1206': [
+    'gemini exp', 'gemini-exp', 'experimental gemini', 'gemini experimental'
+  ],
+  // Future models - add as needed
+  'google/gemini-3-flash-preview': [
+    'gemini 3', 'gemini-3', 'gemini 3 flash', 'g-3', 'g3'
+  ],
+  'anthropic/claude-3.5-sonnet': [
+    'claude', 'claude 3.5', 'claude-3.5', 'c-3.5'
+  ],
+  'openai/gpt-4o': [
+    'gpt-4o', 'gpt 4o', 'gpt4o', 'gpt4', 'chatgpt'
+  ],
+  'openai/gpt-4o-mini': [
+    'gpt-4o-mini', 'gpt 4o mini', 'gpt4o mini', 'gpt mini'
+  ]
 };
 
+// Reverse mapping: keyword -> model ID
+const KEYWORD_TO_MODEL: Map<string, string> = new Map();
+
+for (const [modelId, keywords] of Object.entries(MODEL_KEYWORDS)) {
+  for (const keyword of keywords) {
+    KEYWORD_TO_MODEL.set(keyword.toLowerCase(), modelId);
+    // Also add with spaces removed
+    KEYWORD_TO_MODEL.set(keyword.replace(/\s+/g, '').toLowerCase(), modelId);
+  }
+}
+
 class EnhancedStdioMCPServer {
-  private aiClient: UnifiedAIClient;
+  private aiClient: MCPClient;
   private conversations: Map<string, any[]> = new Map();
-  private serverVersion = '5.0.0';
-  private activeProvider: 'openrouter' | 'google' = 'openrouter';
+  private serverVersion = '6.0.0';
   private defaultModel: string;
   private availableModels: string[];
 
-  constructor(openRouterKey?: string, googleKey?: string) {
+  /**
+   * Detect model from natural language text
+   * Returns the model ID if a keyword is found, otherwise null
+   */
+  private detectModelFromText(text: string): string | null {
+    if (!text) return null;
+
+    const lowerText = text.toLowerCase();
+
+    // Check for exact keywords first
+    for (const [keyword, modelId] of KEYWORD_TO_MODEL) {
+      if (lowerText.includes(keyword)) {
+        console.error(`Detected model keyword "${keyword}" -> ${modelId}`);
+        return modelId;
+      }
+    }
+
+    // Check for pattern matches (e.g., "gemini X.Y" pattern)
+    const geminiPattern = /gemini[-\s]?(\d+\.\d+)(?:[-\s]?(\w+))?/i;
+    const match = lowerText.match(geminiPattern);
+    if (match) {
+      const version = match[1]; // e.g., "2.5", "3.0"
+      const suffix = match[2];  // e.g., "pro", "lite", "flash"
+
+      // Build model ID
+      let modelId = `google/gemini-${version.replace('.', '.')}`;
+      if (suffix === 'pro' || suffix === 'p') {
+        modelId += '-pro-preview';
+      } else if (suffix === 'lite' || suffix === 'l') {
+        modelId += '-flash-lite';
+      } else if (suffix === 'flash' || suffix === 'f') {
+        modelId += '-flash-preview';
+      } else {
+        modelId += '-flash-preview';
+      }
+
+      // Verify model exists
+      if (OPENROUTER_GEMINI_MODELS[modelId as keyof typeof OPENROUTER_GEMINI_MODELS] || this.availableModels.includes(modelId)) {
+        console.error(`Detected model pattern "${match[0]}" -> ${modelId}`);
+        return modelId;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Determine the model to use based on args and any model keywords in the text
+   */
+  private determineModel(args: any, textFields?: string[]): string {
+    // If model is explicitly specified, use it
+    if (args.model && this.availableModels.includes(args.model)) {
+      return args.model;
+    }
+
+    // Check text fields for model keywords
+    for (const field of textFields || []) {
+      const fieldValue = args[field];
+      if (typeof fieldValue === 'string') {
+        const detectedModel = this.detectModelFromText(fieldValue);
+        if (detectedModel) {
+          return detectedModel;
+        }
+      }
+    }
+
+    // Use default model
+    return this.defaultModel;
+  }
+
+  constructor(openRouterKey: string) {
     // Read model configuration from environment
-    this.defaultModel = process.env.DEFAULT_MODEL || 'google/gemini-2.5-flash-preview';
+    this.defaultModel = process.env.DEFAULT_MODEL || 'google/gemini-2.5-flash';
     this.availableModels = process.env.AVAILABLE_MODELS
       ? process.env.AVAILABLE_MODELS.split(',').map(m => m.trim())
       : [
+          'google/gemini-2.5-flash',
           'google/gemini-2.5-flash-preview',
           'google/gemini-2.5-flash-lite',
           'google/gemini-2.5-pro-preview',
-          'google/gemini-2.0-flash-exp',
+          'google/gemini-3-flash-preview',
           'anthropic/claude-3.5-sonnet',
-          'openai/gpt-4o',
-          'openai/gpt-4o-mini'
+          'openai/gpt-4o'
         ];
 
-    this.aiClient = new UnifiedAIClient(openRouterKey, googleKey);
+    this.aiClient = new MCPClient(openRouterKey);
     this.setupStdioInterface();
     this.logInitialization();
   }
 
   private logInitialization() {
     console.error(`MCP Server v${this.serverVersion} starting...`);
-    if (openRouterKey) {
-      console.error('OpenRouter API key detected - will use as primary');
-      this.activeProvider = 'openrouter';
-    } else if (googleKey) {
-      console.error('Google GenAI API key detected - using as primary');
-      this.activeProvider = 'google';
-    } else {
-      console.error('Warning: No API keys detected');
-    }
+    console.error('Using OpenRouter API');
     console.error(`Default model: ${this.defaultModel}`);
     console.error(`Available models: ${this.availableModels.slice(0, 5).join(', ')}${this.availableModels.length > 5 ? '...' : ''}`);
   }
@@ -207,7 +276,7 @@ class EnhancedStdioMCPServer {
     const originalTools = [
       {
         name: 'generate_text',
-        description: 'Generate text using any model on OpenRouter or Google GenAI. Supports thinking mode, JSON output, and grounding.',
+        description: 'Generate text using any model on OpenRouter. Supports thinking mode, JSON output, and grounding.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -296,7 +365,7 @@ class EnhancedStdioMCPServer {
       },
       {
         name: 'list_models',
-        description: 'List all available Gemini models from both OpenRouter and Google GenAI',
+        description: 'List all available Gemini models on OpenRouter',
         inputSchema: {
           type: 'object',
           properties: {
@@ -307,26 +376,6 @@ class EnhancedStdioMCPServer {
               default: 'all'
             }
           }
-        }
-      },
-      {
-        name: 'embed_text',
-        description: 'Generate embeddings for text (Google GenAI only)',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            text: {
-              type: 'string',
-              description: 'Text to generate embeddings for'
-            },
-            model: {
-              type: 'string',
-              description: 'Embedding model to use',
-              enum: ['text-embedding-004', 'text-multilingual-embedding-002'],
-              default: 'text-embedding-004'
-            }
-          },
-          required: ['text']
         }
       },
       {
@@ -365,6 +414,31 @@ class EnhancedStdioMCPServer {
 
     // Handle vision tools first
     if (name in visionToolHandlers) {
+      // Auto-detect model from text fields if not explicitly specified
+      if (!args.model) {
+        const textFields: string[] = [];
+        if (name === 'analyze_image') textFields.push('prompt');
+        if (name === 'analyze_video') textFields.push('prompt');
+        if (name === 'diagnose_error_screenshot') textFields.push('context');
+        if (name === 'ui_to_artifact' || name === 'extract_text_from_screenshot' ||
+            name === 'understand_technical_diagram' || name === 'analyze_data_visualization' ||
+            name === 'ui_diff_check') {
+          // For other tools, the prompt comes from the user's request context
+          // Check all string fields for model keywords
+          for (const [key, value] of Object.entries(args)) {
+            if (typeof value === 'string' && value.length > 10 && value.length < 500) {
+              textFields.push(key);
+            }
+          }
+        }
+
+        const detectedModel = this.determineModel(args, textFields);
+        if (detectedModel !== this.defaultModel) {
+          args.model = detectedModel;
+          console.error(`Auto-selected model: ${detectedModel}`);
+        }
+      }
+
       const handler = visionToolHandlers[name as keyof typeof visionToolHandlers];
       try {
         const result = await handler(this.aiClient, args);
@@ -401,9 +475,6 @@ class EnhancedStdioMCPServer {
       case 'list_models':
         return this.listModels(request.id, args);
 
-      case 'embed_text':
-        return await this.embedText(request.id, args);
-
       case 'get_help':
         return this.getHelp(request.id, args);
 
@@ -421,7 +492,7 @@ class EnhancedStdioMCPServer {
 
   private async generateText(id: any, args: any): Promise<MCPResponse> {
     try {
-      const model = args.model || 'google/gemini-2.5-flash-preview';
+      const model = this.determineModel(args, ['prompt']);
 
       const result = await this.aiClient.chat({
         model,
@@ -450,7 +521,6 @@ class EnhancedStdioMCPServer {
           }],
           metadata: {
             model,
-            provider: result.provider,
             tokensUsed: result.usage?.total_tokens
           }
         }
@@ -470,7 +540,7 @@ class EnhancedStdioMCPServer {
 
   private async analyzeImage(id: any, args: any): Promise<MCPResponse> {
     try {
-      const model = args.model || 'google/gemini-2.5-flash-preview';
+      const model = this.determineModel(args, ['prompt']);
 
       if (!args.image) {
         throw new Error('Image parameter is required');
@@ -492,9 +562,7 @@ class EnhancedStdioMCPServer {
             type: 'text',
             text: result.text
           }],
-          metadata: {
-            provider: result.provider
-          }
+          metadata: {}
         }
       };
     } catch (error) {
@@ -511,7 +579,7 @@ class EnhancedStdioMCPServer {
   }
 
   private async countTokens(id: any, args: any): Promise<MCPResponse> {
-    // Approximate token count (OpenRouter doesn't have a dedicated token count endpoint)
+    // Approximate token count
     const approximateCount = Math.ceil(args.text.length / 4);
 
     return {
@@ -520,7 +588,7 @@ class EnhancedStdioMCPServer {
       result: {
         content: [{
           type: 'text',
-          text: `Approximate token count: ${approximateCount}\n\nNote: Exact token counting requires Google GenAI API. For precise counts, use the Google GenAI client directly.`
+          text: `Approximate token count: ${approximateCount}`
         }],
         metadata: {
           approximateTokenCount: approximateCount,
@@ -534,49 +602,18 @@ class EnhancedStdioMCPServer {
     const filter = args?.filter || 'all';
     const models = this.aiClient.listModels(filter as any);
 
-    // Add Google direct models
-    const googleModels = Object.entries(ALL_GEMINI_MODELS)
-      .filter(([_, info]) => (info as any).provider === 'google')
-      .filter(([_, info]) => {
-        if (filter === 'all') return true;
-        if (filter === 'thinking') return (info as any).thinking === true;
-        if (filter === 'vision') return true;
-        if (filter === 'video') return (info as any).contextWindow >= 1000000;
-        return true;
-      })
-      .map(([name, info]) => ({
-        id: name,
-        name,
-        ...info
-      }));
-
-    const allModels = [...models, ...googleModels];
-
     return {
       jsonrpc: '2.0',
       id,
       result: {
         content: [{
           type: 'text',
-          text: JSON.stringify(allModels, null, 2)
+          text: JSON.stringify(models, null, 2)
         }],
         metadata: {
-          count: allModels.length,
-          filter,
-          activeProvider: this.activeProvider
+          count: models.length,
+          filter
         }
-      }
-    };
-  }
-
-  private async embedText(id: any, args: any): Promise<MCPResponse> {
-    // Note: Embeddings only available through Google GenAI
-    return {
-      jsonrpc: '2.0',
-      id,
-      error: {
-        code: -32603,
-        message: 'Embeddings are only available through Google GenAI API. Please use the Google GenAI client directly or add GEMINI_API_KEY to your environment.'
       }
     };
   }
@@ -590,7 +627,7 @@ class EnhancedStdioMCPServer {
           {
             uri: 'gemini://models',
             name: 'Available Gemini Models',
-            description: 'List of all available Gemini models from OpenRouter and Google GenAI',
+            description: 'List of all available Gemini models on OpenRouter',
             mimeType: 'application/json'
           },
           {
@@ -635,7 +672,7 @@ class EnhancedStdioMCPServer {
 
     switch (uri) {
       case 'gemini://models':
-        content = JSON.stringify(ALL_GEMINI_MODELS, null, 2);
+        content = JSON.stringify(OPENROUTER_GEMINI_MODELS, null, 2);
         mimeType = 'application/json';
         break;
 
@@ -717,8 +754,7 @@ class EnhancedStdioMCPServer {
     return `# Gemini MCP Server Capabilities v${this.serverVersion}
 
 ## API Provider
-- **Primary**: OpenRouter (with fallback to Google GenAI)
-- **Active Provider**: ${this.activeProvider}
+- **Provider**: OpenRouter
 
 ## Text Generation
 - All models support advanced text generation
@@ -754,15 +790,12 @@ class EnhancedStdioMCPServer {
 - Transcription capabilities
 
 ## Model Selection
-### OpenRouter Models (Recommended)
+### OpenRouter Models
 - \`google/gemini-2.5-flash-preview\` - Best balance (⭐ Recommended)
 - \`google/gemini-2.5-pro-preview\` - Most capable
 - \`google/gemini-2.0-flash-exp\` - Fast with video support
-
-### Direct Google Models
-- \`gemini-2.5-flash\` - Fast thinking model
-- \`gemini-2.5-pro\` - Most capable
-- \`gemini-2.0-flash\` - Fast with video support
+- \`anthropic/claude-3.5-sonnet\` - Claude 3.5 Sonnet
+- \`openai/gpt-4o\` - GPT-4o
 `;
   }
 
@@ -771,7 +804,7 @@ class EnhancedStdioMCPServer {
       case 'overview':
         return `# Gemini MCP Server v${this.serverVersion}
 
-Welcome! This server provides access to Google's Gemini AI models through OpenRouter with fallback to Google GenAI.
+Welcome! This server provides access to Google's Gemini AI models through OpenRouter.
 
 ## Available Tool Categories
 
@@ -781,7 +814,7 @@ Welcome! This server provides access to Google's Gemini AI models through OpenRo
 - **list_models** - List all available models
 - **get_help** - Get help documentation
 
-### Vision Tools (New!)
+### Vision Tools
 - **ui_to_artifact** - Convert UI to code/prompts/specs
 - **extract_text_from_screenshot** - OCR text extraction
 - **diagnose_error_screenshot** - Error diagnosis
@@ -797,11 +830,10 @@ Welcome! This server provides access to Google's Gemini AI models through OpenRo
 - "Analyze this error screenshot"
 
 ## Configuration
-Set environment variables:
-- \`OPENROUTER_API_KEY\` - OpenRouter API key (recommended)
-- \`GEMINI_API_KEY\` - Google GenAI API key (fallback)
+Set environment variable:
+- \`OPENROUTER_API_KEY\` - OpenRouter API key (required)
 
-Both are optional - the server will use whichever is available.`;
+Get your API key at: https://openrouter.ai/`;
 
       case 'tools':
         return `# Available Tools
@@ -1163,13 +1195,13 @@ data:video/mp4;base64,AAAAIGZ0...
   }
 }
 
-// Get API keys from environment
-const openRouterKey = process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY;
-const googleKey = process.env.GEMINI_API_KEY;
+// Get API key from environment
+const openRouterKey = process.env.OPENROUTER_API_KEY;
 
-if (!openRouterKey && !googleKey) {
-  console.error('Error: Either OPENROUTER_API_KEY or GEMINI_API_KEY environment variable is required');
+if (!openRouterKey) {
+  console.error('Error: OPENROUTER_API_KEY environment variable is required');
+  console.error('Get your API key at: https://openrouter.ai/');
   process.exit(1);
 }
 
-new EnhancedStdioMCPServer(openRouterKey, googleKey);
+new EnhancedStdioMCPServer(openRouterKey);
