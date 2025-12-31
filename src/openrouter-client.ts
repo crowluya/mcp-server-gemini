@@ -67,6 +67,14 @@ export const OPENROUTER_GEMINI_MODELS = {
     supports: ['vision', 'video', 'function_calling']
   },
 
+  // Gemini 3 Flash
+  'google/gemini-3-flash-preview': {
+    description: 'Latest Gemini 3 Flash model with improved capabilities',
+    contextWindow: 1000000,
+    thinking: true,
+    supports: ['vision', 'video', 'function_calling']
+  },
+
   // Gemini 2.0 Flash
   'google/gemini-2.0-flash-exp': {
     description: 'Fast, efficient model with 1M context window',
