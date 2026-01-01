@@ -8,7 +8,7 @@
 
 A powerful MCP (Model Context Protocol) server that brings Google's Gemini AI models to your favorite development environment through OpenRouter. Access Gemini 3 and 2.5's thinking capabilities, vision analysis, and more through a seamless integration.
 
-🚀 **Works with**: Claude Desktop, Cursor, Windsurf, and any MCP-compatible client
+🚀 **Works with**: Claude Code, Claude Desktop, Cursor, Windsurf, and any MCP-compatible client
 🎯 **Why use this**: Get Gemini's cutting-edge AI features directly in your IDE with full parameter control
 📚 **Self-documenting**: Built-in help system means you never need to leave your editor
 
@@ -77,6 +77,30 @@ Pricing via [OpenRouter](https://openrouter.ai/models?google_tag_verified=organi
    - `OPENROUTER_API_KEY` (required): Your OpenRouter API key
    - `DEFAULT_MODEL` (optional): Default model to use (default: `google/gemini-2.5-flash`)
    - `AVAILABLE_MODELS` (optional): Comma-separated list of allowed models
+   </details>
+
+   <details>
+   <summary><b>Claude Code</b></summary>
+
+   Edit your Claude Code config file:
+   - Mac: `~/Library/Application Support/Claude/claude_desktop_config.json`
+   - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+   - Linux: `~/.config/Claude/claude_desktop_config.json`
+
+   ```json
+   {
+     "mcpServers": {
+       "gemini": {
+         "command": "node",
+         "args": ["path/to/mcp-server-gemini/dist/enhanced-stdio-server.js"],
+         "env": {
+           "OPENROUTER_API_KEY": "your_api_key_here",
+           "DEFAULT_MODEL": "google/gemini-2.5-flash"
+         }
+       }
+     }
+   }
+   ```
    </details>
 
    <details>
