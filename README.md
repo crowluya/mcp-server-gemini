@@ -28,7 +28,6 @@ Pricing via [OpenRouter](https://openrouter.ai/models?google_tag_verified=organi
 | Model | Context | Input | Output | Features | Best For |
 |-------|---------|-------|--------|----------|----------|
 | google/gemini-3-flash-preview 🆕 | 1M | $0.50/M | $3/M | Thinking, Vision, Video, Audio | Latest Gemini 3 |
-| google/gemini-2.5-pro-preview | 2M | $1.25/M | $10/M | Thinking, Vision, Video | Complex reasoning |
 | google/gemini-2.5-flash-preview ⭐ | 1M | ~$0.10/M | ~$0.40/M | Thinking, Vision, Video | General use (default) |
 | google/gemini-2.5-flash-exp | 1M | ~$0.30/M | ~$2.50/M | Thinking, Vision, Video | Experimental 2.5 |
 | google/gemini-2.5-flash-lite | 1M | - | - | Thinking, Vision, Video | Lightweight 2.5 |
@@ -67,7 +66,7 @@ Pricing via [OpenRouter](https://openrouter.ai/models?google_tag_verified=organi
          "env": {
            "OPENROUTER_API_KEY": "your_api_key_here",
            "DEFAULT_MODEL": "google/gemini-2.5-flash",
-           "AVAILABLE_MODELS": "google/gemini-3-flash-preview,google/gemini-2.5-flash,google/gemini-2.5-pro-preview"
+           "AVAILABLE_MODELS": "google/gemini-3-flash-preview,google/gemini-2.5-flash,google/gemini-2.5-flash-preview"
          }
        }
      }

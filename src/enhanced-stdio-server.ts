@@ -20,9 +20,6 @@ const MODEL_KEYWORDS: Record<string, string[]> = {
   'google/gemini-2.5-flash-lite': [
     'gemini 2.5 lite', 'gemini-2.5-lite', '2.5 lite', 'gemini 2.5 flash lite', 'gemini lite', 'g-lite'
   ],
-  'google/gemini-2.5-pro-preview': [
-    'gemini 2.5 pro', 'gemini-2.5-pro', '2.5 pro', 'gemini pro', 'g-pro', 'gemini pro 2.5'
-  ],
   'google/gemini-2.0-flash-exp': [
     'gemini 2.0', 'gemini-2.0', '2.0 flash', 'gemini 2.0 flash', 'g-2.0'
   ],
@@ -138,7 +135,6 @@ class EnhancedStdioMCPServer {
           'google/gemini-2.5-flash',
           'google/gemini-2.5-flash-preview',
           'google/gemini-2.5-flash-lite',
-          'google/gemini-2.5-pro-preview',
           'google/gemini-3-flash-preview'
         ];
 
