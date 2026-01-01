@@ -20,9 +20,6 @@ const MODEL_KEYWORDS: Record<string, string[]> = {
   'google/gemini-2.5-flash-lite': [
     'gemini 2.5 lite', 'gemini-2.5-lite', '2.5 lite', 'gemini 2.5 flash lite', 'gemini lite', 'g-lite'
   ],
-  'google/gemini-2.0-flash-exp': [
-    'gemini 2.0', 'gemini-2.0', '2.0 flash', 'gemini 2.0 flash', 'g-2.0'
-  ],
   'google/gemini-1.5-flash': [
     'gemini 1.5 flash', 'gemini-1.5-flash', '1.5 flash', 'g-1.5-flash'
   ],

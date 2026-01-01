@@ -54,12 +54,6 @@ export const OPENROUTER_GEMINI_MODELS = {
     thinking: true,
     supports: ['vision', 'video', 'function_calling']
   },
-  'google/gemini-2.5-flash-exp': {
-    description: 'Experimental version of 2.5 Flash',
-    contextWindow: 1000000,
-    thinking: true,
-    supports: ['vision', 'video', 'function_calling']
-  },
 
   // Gemini 3 Flash
   'google/gemini-3-flash-preview': {

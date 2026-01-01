@@ -29,7 +29,6 @@ Pricing via [OpenRouter](https://openrouter.ai/models?google_tag_verified=organi
 |-------|---------|-------|--------|----------|----------|
 | google/gemini-3-flash-preview 🆕 | 1M | $0.50/M | $3/M | Thinking, Vision, Video, Audio | Latest Gemini 3 |
 | google/gemini-2.5-flash-preview ⭐ | 1M | ~$0.10/M | ~$0.40/M | Thinking, Vision, Video | General use (default) |
-| google/gemini-2.5-flash-exp | 1M | ~$0.30/M | ~$2.50/M | Thinking, Vision, Video | Experimental 2.5 |
 | google/gemini-2.5-flash-lite | 1M | - | - | Thinking, Vision, Video | Lightweight 2.5 |
 | google/gemini-2.0-flash-exp | 1M | - | - | Vision, Video | Fast with video |
 | google/gemini-exp-1206 | 2M | - | - | Thinking, Vision, Video | Latest experimental |
