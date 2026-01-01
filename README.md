@@ -27,17 +27,15 @@ Pricing via [OpenRouter](https://openrouter.ai/models?google_tag_verified=organi
 
 | Model | Context | Input | Output | Features | Best For |
 |-------|---------|-------|--------|----------|----------|
+| google/gemini-2.5-flash-lite 💎 | 1M | $0.10/M | $0.40/M | Vision, Video | Best value (default) |
+| google/gemini-2.5-flash-preview ⭐ | 1M | $0.10/M | $0.40/M | Thinking, Vision, Video | With thinking |
 | google/gemini-3-flash-preview 🆕 | 1M | $0.50/M | $3/M | Thinking, Vision, Video, Audio | Latest Gemini 3 |
-| google/gemini-2.5-flash-preview ⭐ | 1M | ~$0.10/M | ~$0.40/M | Thinking, Vision, Video | General use (default) |
-| google/gemini-2.5-flash-lite | 1M | - | - | Thinking, Vision, Video | Lightweight 2.5 |
 | google/gemini-2.0-flash-exp | 1M | - | - | Vision, Video | Fast with video |
 | google/gemini-exp-1206 | 2M | - | - | Thinking, Vision, Video | Latest experimental |
 | google/gemini-pro-1.5 | 2M | - | - | Vision, Video | Previous generation pro |
 | google/gemini-flash-1.5 | 1M | - | - | Vision | Quick tasks |
 
 **Default model**: `google/gemini-2.5-flash` (configurable via `DEFAULT_MODEL` env var)
-
-**Note**: Prices are estimates via OpenRouter and may vary by provider. Check [OpenRouter](https://openrouter.ai/models?google_tag_verified=organization%3Agoogle-llc) for real-time pricing.
 
 ## Quick Start
 
@@ -65,7 +63,7 @@ Pricing via [OpenRouter](https://openrouter.ai/models?google_tag_verified=organi
          "env": {
            "OPENROUTER_API_KEY": "your_api_key_here",
            "DEFAULT_MODEL": "google/gemini-2.5-flash",
-           "AVAILABLE_MODELS": "google/gemini-3-flash-preview,google/gemini-2.5-flash,google/gemini-2.5-flash-preview"
+           "AVAILABLE_MODELS": "google/gemini-2.5-flash-lite,google/gemini-2.5-flash-preview,google/gemini-3-flash-preview"
          }
        }
      }

@@ -54,6 +54,12 @@ export const OPENROUTER_GEMINI_MODELS = {
     thinking: true,
     supports: ['vision', 'video', 'function_calling']
   },
+  'google/gemini-2.5-flash-lite': {
+    description: 'Ultra-low latency model with best cost efficiency',
+    contextWindow: 1000000,
+    thinking: false,
+    supports: ['vision', 'video', 'function_calling']
+  },
 
   // Gemini 3 Flash
   'google/gemini-3-flash-preview': {
