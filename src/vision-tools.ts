@@ -18,10 +18,6 @@ const MODEL_KEYWORDS: Record<string, string[]> = {
   'google/gemini-3-flash-preview': ['gemini 3', 'gemini-3', 'g-3', 'g3'],
   'google/gemini-2.5-flash': ['gemini 2.5', 'gemini-2.5', '2.5 flash', 'g-2.5'],
   'google/gemini-2.5-flash-lite': ['gemini 2.5 lite', 'gemini-2.5-lite', '2.5 lite', 'g-lite'],
-  'google/gemini-2.5-pro-preview': ['gemini 2.5 pro', 'gemini-2.5-pro', '2.5 pro', 'g-pro'],
-  'google/gemini-2.0-flash-exp': ['gemini 2.0', 'gemini-2.0', 'g-2.0'],
-  'anthropic/claude-3.5-sonnet': ['claude', 'claude 3.5', 'c-3.5'],
-  'openai/gpt-4o': ['gpt-4o', 'gpt4o', 'gpt4'],
 };
 
 const KEYWORD_TO_MODEL: Map<string, string> = new Map();
@@ -55,17 +51,14 @@ export function detectModelFromText(text: string, defaultModel: string): string 
     const suffix = match[2];
 
     let modelId = `google/gemini-${version}`;
-    if (suffix === 'pro' || suffix === 'p') {
-      modelId += '-pro-preview';
-    } else if (suffix === 'lite' || suffix === 'l') {
+    if (suffix === 'lite' || suffix === 'l') {
       modelId += '-flash-lite';
-    } else {
+    } else if (suffix === 'preview' || version === '3' || version === '3.0') {
+      // Gemini 3 uses -flash-preview suffix
       modelId += '-flash-preview';
-    }
-
-    // For version 3, use the correct preview name
-    if (version === '3' || version === '3.0') {
-      modelId = 'google/gemini-3-flash-preview';
+    } else {
+      // Gemini 2.5 flash is just -flash (no preview)
+      modelId += '-flash';
     }
 
     return modelId;
@@ -270,7 +263,7 @@ export async function diagnoseErrorScreenshot(
     model?: string; // Custom model ID (any OpenRouter model)
   }
 ): Promise<ToolResponse> {
-  const { image, context, programmingLanguage, model = 'google/gemini-2.5-pro-preview' } = params;
+  const { image, context, programmingLanguage, model = 'google/gemini-2.5-flash' } = params;
 
   const baseSystemInstruction = `You are an expert debugging specialist with deep knowledge across all programming languages, frameworks, and platforms.
 Your task is to analyze error messages, stack traces, and logs to provide actionable solutions.
@@ -527,7 +520,7 @@ export async function uiDiffCheck(
     model?: string; // Custom model ID (any OpenRouter model)
   }
 ): Promise<ToolResponse> {
-  const { expectedImage, actualImage, detailLevel = 'detailed', checkAccessibility = true, model = 'google/gemini-2.5-pro-preview' } = params;
+  const { expectedImage, actualImage, detailLevel = 'detailed', checkAccessibility = true, model = 'google/gemini-2.5-flash' } = params;
 
   const systemInstruction = `You are a QA engineer and UI specialist with expertise in visual regression testing.
 Your task is to compare two UI screenshots and identify differences between the expected (reference) and actual (implementation) designs.
@@ -666,7 +659,7 @@ export async function analyzeVideo(
     model?: string; // Custom model ID (any OpenRouter model)
   }
 ): Promise<ToolResponse> {
-  const { video, prompt, focus = 'summary', model = 'google/gemini-2.0-flash-exp' } = params;
+  const { video, prompt, focus = 'summary', model = 'google/gemini-3-flash-preview' } = params;
 
   const systemInstructions: Record<string, string> = {
     summary: 'You are a video analyst. Provide a concise summary of the video content, covering the main events, key moments, and overall narrative.',
@@ -749,7 +742,7 @@ export const visionToolHandlers = {
 export function getVisionToolSchemas() {
   const commonModelProperty = {
     type: 'string',
-    description: 'Any OpenRouter model ID (e.g., google/gemini-2.5-flash, anthropic/claude-3.5-sonnet, openai/gpt-4o, etc.)',
+    description: 'Any OpenRouter Gemini model ID (e.g., google/gemini-2.5-flash, google/gemini-3-flash-preview, google/gemini-2.5-flash-lite)',
     default: 'google/gemini-2.5-flash'
   };
 
@@ -835,7 +828,7 @@ export function getVisionToolSchemas() {
           },
           model: {
             ...commonModelProperty,
-            default: 'google/gemini-2.5-pro-preview'
+            default: 'google/gemini-2.5-flash'
           }
         },
         required: ['image']
@@ -921,7 +914,7 @@ export function getVisionToolSchemas() {
           },
           model: {
             ...commonModelProperty,
-            default: 'google/gemini-2.5-pro-preview'
+            default: 'google/gemini-2.5-flash'
           }
         },
         required: ['expectedImage', 'actualImage']
@@ -974,8 +967,8 @@ export function getVisionToolSchemas() {
           },
           model: {
             ...commonModelProperty,
-            default: 'google/gemini-2.0-flash-exp',
-            description: 'Any OpenRouter model ID with video support (e.g., google/gemini-2.0-flash-exp, google/gemini-2.5-flash)'
+            default: 'google/gemini-3-flash-preview',
+            description: 'Any OpenRouter Gemini model ID with video support (e.g., google/gemini-3-flash-preview, google/gemini-2.5-flash)'
           }
         },
         required: ['video', 'prompt']

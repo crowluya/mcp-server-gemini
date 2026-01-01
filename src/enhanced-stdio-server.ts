@@ -14,22 +14,12 @@ if (process.stdin.setEncoding) {
  * Maps keywords/patterns to actual model IDs
  */
 const MODEL_KEYWORDS: Record<string, string[]> = {
-  'google/gemini-2.5-flash-preview': [
+  'google/gemini-2.5-flash': [
     'gemini 2.5', 'gemini-2.5', '2.5 flash', 'gemini 2.5 flash', 'gemini2.5', 'g-2.5'
   ],
   'google/gemini-2.5-flash-lite': [
     'gemini 2.5 lite', 'gemini-2.5-lite', '2.5 lite', 'gemini 2.5 flash lite', 'gemini lite', 'g-lite'
   ],
-  'google/gemini-1.5-flash': [
-    'gemini 1.5 flash', 'gemini-1.5-flash', '1.5 flash', 'g-1.5-flash'
-  ],
-  'google/gemini-1.5-pro': [
-    'gemini 1.5 pro', 'gemini-1.5-pro', '1.5 pro', 'g-1.5-pro'
-  ],
-  'google/gemini-exp-1206': [
-    'gemini exp', 'gemini-exp', 'experimental gemini', 'gemini experimental'
-  ],
-  // Future models - add as needed
   'google/gemini-3-flash-preview': [
     'gemini 3', 'gemini-3', 'gemini 3 flash', 'g-3', 'g3'
   ]
@@ -79,14 +69,14 @@ class EnhancedStdioMCPServer {
 
       // Build model ID
       let modelId = `google/gemini-${version.replace('.', '.')}`;
-      if (suffix === 'pro' || suffix === 'p') {
-        modelId += '-pro-preview';
-      } else if (suffix === 'lite' || suffix === 'l') {
+      if (suffix === 'lite' || suffix === 'l') {
         modelId += '-flash-lite';
-      } else if (suffix === 'flash' || suffix === 'f') {
+      } else if (suffix === 'preview' || version === '3' || version === '3.0') {
+        // Gemini 3 uses -flash-preview suffix
         modelId += '-flash-preview';
       } else {
-        modelId += '-flash-preview';
+        // Gemini 2.5 flash is just -flash (no preview)
+        modelId += '-flash';
       }
 
       // Verify model exists
@@ -130,7 +120,6 @@ class EnhancedStdioMCPServer {
       ? process.env.AVAILABLE_MODELS.split(',').map(m => m.trim())
       : [
           'google/gemini-2.5-flash',
-          'google/gemini-2.5-flash-preview',
           'google/gemini-2.5-flash-lite',
           'google/gemini-3-flash-preview'
         ];
@@ -253,7 +242,7 @@ class EnhancedStdioMCPServer {
     const modelEnum = this.availableModels.length > 0 ? this.availableModels : undefined;
     const modelDescription = modelEnum
       ? `Model to use. Available: ${modelEnum.slice(0, 5).join(', ')}${modelEnum.length > 5 ? ', ...' : ''}. Or specify any OpenRouter model ID.`
-      : 'Any OpenRouter model ID (e.g., google/gemini-2.5-flash-preview, anthropic/claude-3.5-sonnet, openai/gpt-4o, etc.)';
+      : 'Any OpenRouter Gemini model ID (e.g., google/gemini-2.5-flash, google/gemini-3-flash-preview, google/gemini-2.5-flash-lite)';
 
     const originalTools = [
       {
@@ -772,12 +761,10 @@ class EnhancedStdioMCPServer {
 - Transcription capabilities
 
 ## Model Selection
-### OpenRouter Models
-- \`google/gemini-2.5-flash-preview\` - Best balance (⭐ Recommended)
-- \`google/gemini-2.5-pro-preview\` - Most capable
-- \`google/gemini-2.0-flash-exp\` - Fast with video support
-- \`anthropic/claude-3.5-sonnet\` - Claude 3.5 Sonnet
-- \`openai/gpt-4o\` - GPT-4o
+### OpenRouter Gemini Models
+- \`google/gemini-2.5-flash\` - State-of-the-art workhorse model with thinking (⭐ Recommended)
+- \`google/gemini-2.5-flash-lite\` - Ultra-low latency, best cost efficiency
+- \`google/gemini-3-flash-preview\` - Latest Gemini 3 with improved capabilities
 `;
   }
 
@@ -1008,48 +995,30 @@ Example:
       case 'models':
         return `# Available Gemini Models
 
-## OpenRouter Models (Recommended)
+## OpenRouter Gemini Models
 
-### Thinking Models (2.5 Series)
-**google/gemini-2.5-pro-preview**
-- Most capable for complex reasoning
-- 2M token context
+**google/gemini-2.5-flash** ⭐ Recommended
+- State-of-the-art workhorse model
+- 1M token context with thinking
 - Vision and video support
+- Best balance of performance/cost
 
-**google/gemini-2.5-flash-preview** ⭐
-- Best balance of speed/cost
+**google/gemini-2.5-flash-lite**
+- Ultra-low latency model
 - 1M token context
+- Best cost efficiency ($0.10/M input, $0.40/M output)
 - Vision and video support
 
-**google/gemini-2.5-flash-exp**
-- Experimental 2.5 Flash
-- Same capabilities as preview
-
-### Standard Models
-**google/gemini-2.0-flash-exp**
-- Fast with 1M context
-- Video support
-- Cost-efficient
-
-## Direct Google Models
-
-**gemini-2.5-pro**
-- Direct access via Google GenAI
-- 2M context, thinking mode
-
-**gemini-2.5-flash**
-- Direct access, fast thinking
-- 1M context
-
-**gemini-2.0-flash**
-- Direct access with video
-- 1M context
+**google/gemini-3-flash-preview**
+- Latest Gemini 3 Flash model
+- 1M token context with thinking
+- Improved reasoning capabilities
+- Vision, video, and audio support
 
 ## Selection Guide
-- Complex reasoning: gemini-2.5-pro
-- General use: gemini-2.5-flash
-- Video analysis: gemini-2.0-flash
-- Cost-sensitive: gemini-2.0-flash-lite`;
+- Best value: google/gemini-2.5-flash-lite
+- General use: google/gemini-2.5-flash
+- Latest capabilities: google/gemini-3-flash-preview`;
 
       case 'parameters':
         return `# Parameter Reference

@@ -48,8 +48,8 @@ export interface OpenRouterModel {
 // OpenRouter model mappings for Gemini
 export const OPENROUTER_GEMINI_MODELS = {
   // Gemini 2.5 Flash (Thinking)
-  'google/gemini-2.5-flash-preview': {
-    description: 'Fast thinking model with best price/performance ratio',
+  'google/gemini-2.5-flash': {
+    description: 'State-of-the-art workhorse model with thinking capabilities',
     contextWindow: 1000000,
     thinking: true,
     supports: ['vision', 'video', 'function_calling']
@@ -65,36 +65,6 @@ export const OPENROUTER_GEMINI_MODELS = {
   'google/gemini-3-flash-preview': {
     description: 'Latest Gemini 3 Flash model with improved capabilities',
     contextWindow: 1000000,
-    thinking: true,
-    supports: ['vision', 'video', 'function_calling']
-  },
-
-  // Gemini 2.0 Flash
-  'google/gemini-2.0-flash-exp': {
-    description: 'Fast, efficient model with 1M context window',
-    contextWindow: 1000000,
-    thinking: false,
-    supports: ['vision', 'video', 'function_calling']
-  },
-
-  // Gemini 1.5 Pro
-  'google/gemini-pro-1.5': {
-    description: 'Previous generation pro model with vision',
-    contextWindow: 2000000,
-    thinking: false,
-    supports: ['vision', 'video', 'function_calling']
-  },
-  'google/gemini-flash-1.5': {
-    description: 'Fast model for quick tasks',
-    contextWindow: 1000000,
-    thinking: false,
-    supports: ['vision', 'function_calling']
-  },
-
-  // Experimental models
-  'google/gemini-exp-1206': {
-    description: 'Latest experimental Gemini model',
-    contextWindow: 2000000,
     thinking: true,
     supports: ['vision', 'video', 'function_calling']
   }
@@ -260,7 +230,7 @@ export class OpenRouterClient {
     maxTokens?: number;
     responseFormat?: { type: 'text' | 'json_object' };
   }): Promise<{ text: string; usage?: { total_tokens: number } }> {
-    const model = params.model || 'google/gemini-2.5-flash-preview';
+    const model = params.model || 'google/gemini-2.5-flash';
 
     const messages: OpenRouterMessage[] = [];
 
